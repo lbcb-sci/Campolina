@@ -11,7 +11,7 @@
     "in_channels": 5,
     "out_channels": [
         32,
-	64,
+	    64,
         64,
         128,
         128
