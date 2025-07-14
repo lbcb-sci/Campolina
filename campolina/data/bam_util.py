@@ -50,7 +50,7 @@ class BamIndex:
 
         try: read_ptrs = self.bam_idx[read_id]
         except KeyError:
-            tqdm.write(f'Cannot find read {read_id} in bam index.')
+            #tqdm.write(f'Cannot find read {read_id} in bam index.')
             return None
 
         for read_ptr in read_ptrs:

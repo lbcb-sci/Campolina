@@ -34,7 +34,6 @@ class CustomLoss(_Loss):
         return self.alpha*bce_loss + self.beta*huber_loss + self.gamma*consecutive_loss + self.delta*soft_segment_loss, bce_loss, huber_loss, consecutive_loss, soft_segment_loss
         #return huber_loss, None, huber_loss
 
-
 class FocalLoss(_Loss):
     def __init__(self, alpha, gamma, weight=None, size_average=True, reduce=None, reduction='mean'):
         super().__init__(size_average, reduce, reduction)
@@ -121,7 +120,7 @@ class NormalizedL1(nn.Module):
     def __init__(self, margin=0):
         super(NormalizedL1, self).__init__()
         self.l1 = L1Loss(reduction='none')
-        print(f'Huber loss margin set to: {margin}')
+        #print(f'Huber loss margin set to: {margin}')
         self.margin = margin
 
     def forward(self, predicted_number, true_number):
