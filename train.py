@@ -12,11 +12,22 @@ from campolina.loss import CustomLoss
 
 #torch.manual_seed(12345)
 
-def test_model(bam_idx: BamIndex, model: EventDetector, device, loss_f, scope: dict, valid: bool = False):
+def test_model(
+          bam_idx: BamIndex, 
+          model: EventDetector, 
+          device, 
+          loss_f, 
+          scope: dict, 
+          valid: bool = False
+    ) -> dict:
+
     model.eval()
 
     full_predictions = []; full_labels = []
-    full_loss = full_bce_loss = full_huber_loss = full_consecutive_loss = full_softmean_loss = 0.0
+
+    # init losses
+    full_loss = full_bce = full_huber = full_consecutive = full_softmean = 0.0
+
     steps = 0
 
     with torch.no_grad():
@@ -28,28 +39,28 @@ def test_model(bam_idx: BamIndex, model: EventDetector, device, loss_f, scope: d
 
             predictions = torch.squeeze(model(batch), dim=2)
 
-            loss, bce_loss, huber_loss, consecutive_loss, softmean_loss = loss_f(batch, predictions, labels)
-            full_loss += loss.item()
-            full_bce_loss += bce_loss.item()
-            full_huber_loss += huber_loss.item()
-            full_consecutive_loss += consecutive_loss.item()
-            full_softmean_loss += softmean_loss.item()
+            loss, bce, huber, consecutive, softmean = loss_f(batch, predictions, labels)
+            full_loss        += loss.item()
+            full_bce         += bce.item()
+            full_huber       += huber.item()
+            full_consecutive += consecutive.item()
+            full_softmean    += softmean.item()
             steps += 1
 
             if not valid:
-                predictions = np.where((1/(1 + np.exp(-predictions.detach().cpu().numpy()))) > 0.5, 1, 0)
+                predictions = np.where((1 / (1 + np.exp(-predictions.detach().cpu().numpy()))) > 0.5, 1, 0)
                 full_predictions.extend(list(predictions))
                 full_labels.extend(labels.cpu().numpy())
 
-    report = {}
-    report['loss'] = full_loss / steps
-    report['bce_loss'] = full_bce_loss / steps
-    report['huber_loss'] = full_huber_loss / steps
-    report['consecutive_loss'] = full_consecutive_loss / steps
-    report['softmean_loss'] = full_softmean_loss / steps
-    report['predictions'] = full_predictions
+        report = {}
+        report['loss'] = full_loss / steps
+        report['bce_loss'] = full_bce / steps
+        report['huber_loss'] = full_huber / steps
+        report['consecutive_loss'] = full_consecutive / steps
+        report['softmean_loss'] = full_softmean / steps
+        report['predictions'] = full_predictions
 
-    return report
+        return report
 
 def train_step(
         batch, 
@@ -63,7 +74,6 @@ def train_step(
     """
     Train model on a single batch.
     """
-
     report = dict()
 
     model.train()
@@ -71,7 +81,6 @@ def train_step(
     batch, labels = torch.Tensor(batch).to(device), torch.Tensor(labels).to(device)
 
     predictions = torch.squeeze(model(batch), dim=2)
-    report['predictions'] = predictions
 
     loss, bce_loss, huber_loss, consecutive_loss, softmean_loss = loss_f(batch, predictions, labels)
 
@@ -80,8 +89,9 @@ def train_step(
     report['huber_loss'] = huber_loss
     report['consecutive_loss'] = consecutive_loss
     report['softmean_loss'] = softmean_loss
+    report['predictions'] = predictions
 
-    if total_steps % 3000 == 0:
+    if (total_steps + 1) % scope['log_interval'] == 0:
         num_predicted_events = torch.sum(torch.where(torch.sigmoid(torch.squeeze(predictions)) > 0.5, torch.tensor(1), torch.tensor(0)), dim=1).int()
         num_true_events = torch.sum(labels, dim=1).int()
         tqdm.write(f'Num predicted vs true num events:\n\t{num_predicted_events[:10]}\n\t{num_true_events[:10]}, '
@@ -148,7 +158,7 @@ def train_epoch(
         total_consecutive_loss += step_data['consecutive_loss'].detach()
         total_softmean_loss += step_data['softmean_loss'].detach()
 
-        if total_steps % 3000 == 0:
+        if (total_steps + 1) % scope['log_interval'] == 0:
 
             test_report = test_model(
                 bam_idx=bam_idx, 
@@ -165,7 +175,8 @@ def train_epoch(
             val_consecutive_loss = test_report['consecutive_loss']
             val_softmean_loss = test_report['softmean_loss']
 
-            tqdm.write(f'Validation loss after {total_steps} is {val_loss:.2f}, BCE is {val_bce_loss:.2f}, Huber is {val_huber_loss:.2f}, Soft mean is {val_softmean_loss:.2f}')
+            tqdm.write(f'Validation loss after {total_steps+1} is {val_loss:.2f}, BCE is {val_bce_loss:.2f}, Huber is {val_huber_loss:.2f}, Soft mean is {val_softmean_loss:.2f}')
+            print(f'Validation loss after {total_steps+1} is {val_loss:.2f}, BCE is {val_bce_loss:.2f}, Huber is {val_huber_loss:.2f}, Soft mean is {val_softmean_loss:.2f}', flush=True)
 
             if best_val_loss is None:
                 best_val_loss = val_loss
@@ -181,8 +192,7 @@ def train_epoch(
 
             else: patience += 1
 
-            wandb.log(
-                    {"epoch": i, "step": total_steps, "avg_train_loss": total_loss / total_steps, "avg_train_bce_loss": total_bce_loss / total_steps, "avg_train_huber_loss": total_huber_loss / total_steps, "avg_train_consecutive_loss": total_consecutive_loss / total_steps, "avg_train_softmean_loss": total_softmean_loss / total_steps,  "val_loss": validation_loss, "val_bce_loss": validation_bce_loss, "val_huber_loss": validation_huber_loss, "val_consecutive_loss": validation_consecutive_loss, "val_softmean_loss": validation_softmean_loss})
+            #wandb.log({"epoch": epoch, "step": total_steps, "avg_train_loss": total_loss / total_steps, "avg_train_bce_loss": total_bce_loss / total_steps, "avg_train_huber_loss": total_huber_loss / total_steps, "avg_train_consecutive_loss": total_consecutive_loss / total_steps, "avg_train_softmean_loss": total_softmean_loss / total_steps,  "val_loss": val_loss, "val_bce_loss": val_bce_loss, "val_huber_loss": val_huber_loss, "val_consecutive_loss": val_consecutive_loss, "val_softmean_loss": val_softmean_loss})
 
     # log results after training for one epoch
     total_loss = total_loss.item()
@@ -274,8 +284,9 @@ def train(scope: dict):
 
     best_val_loss = None
 
-    for i in range(scope['epochs']):
-        tqdm.write(f'Starting epoch {i}')
+    for epoch in range(scope['epochs']):
+
+        tqdm.write(f'Starting epoch {epoch}...')
 
         train_loss, best_val_loss = train_epoch(
             bam_idx=bam_idx, 
@@ -285,7 +296,7 @@ def train(scope: dict):
             loss_f=loss_f, 
             scope=scope, 
             best_val_loss=best_val_loss, 
-            epoch=i, 
+            epoch=epoch, 
             new_loss_step=scope['introduce_losses']
         ) # TODO myb do not evaluate on padded part of the signal
 
