@@ -1,7 +1,6 @@
-import argparse, os, time, json
+import argparse, os, json
 import wandb
 import numpy as np
-import pod5 as p5
 from tqdm import tqdm
 
 import torch
@@ -9,7 +8,7 @@ from torch.optim import AdamW
 
 from campolina.data import BamIndex, load_batches
 from campolina.model.model import EventDetector
-from loss import CustomLoss
+from campolina.loss import CustomLoss
 
 #torch.manual_seed(12345)
 
@@ -37,14 +36,6 @@ def test_model(bam_idx: BamIndex, model: EventDetector, device, loss_f, scope: d
             full_softmean_loss += softmean_loss.item()
             steps += 1
 
-            predicted_probabilities = torch.sigmoid(predictions)
-            num_predicted_events = torch.sum(predicted_probabilities, dim=1).float()
-            num_actual_events = torch.sum(labels, dim=1)
-            #tqdm.write(f'Median difference between predicted and actual events: {torch.median(torch.abs(num_predicted_events  - num_actual_events))}')
-
-            #tqdm.write(f'Validation predictions: {torch.sigmoid(torch.squeeze(predictions))[:,:20]}')
-            #tqdm.write(f'Validation labels: {labels[:,:20]}')
-
             if not valid:
                 predictions = np.where((1/(1 + np.exp(-predictions.detach().cpu().numpy()))) > 0.5, 1, 0)
                 full_predictions.extend(list(predictions))
@@ -67,15 +58,17 @@ def train_step(
         device, 
         loss_f, 
         optimizer, 
-        total_steps
-    ):
+        total_steps,
+    ) -> dict:
+    """
+    Train model on a single batch.
+    """
 
     report = dict()
 
     model.train()
     #batch = torch.unsqueeze(torch.Tensor(batch).to(device), 1)  #TODO when do I normalize the signal
-    batch = torch.Tensor(batch).to(device)
-    labels = torch.Tensor(labels).to(device)
+    batch, labels = torch.Tensor(batch).to(device), torch.Tensor(labels).to(device)
 
     predictions = torch.squeeze(model(batch), dim=2)
     report['predictions'] = predictions
@@ -188,8 +181,8 @@ def train_epoch(
 
             else: patience += 1
 
-            #wandb.log(
-                    #{"epoch": i, "step": total_steps, "avg_train_loss": total_loss / total_steps, "avg_train_bce_loss": total_bce_loss / total_steps, "avg_train_huber_loss": total_huber_loss / total_steps, "avg_train_consecutive_loss": total_consecutive_loss / total_steps, "avg_train_softmean_loss": total_softmean_loss / total_steps,  "val_loss": validation_loss, "val_bce_loss": validation_bce_loss, "val_huber_loss": validation_huber_loss, "val_consecutive_loss": validation_consecutive_loss, "val_softmean_loss": validation_softmean_loss})
+            wandb.log(
+                    {"epoch": i, "step": total_steps, "avg_train_loss": total_loss / total_steps, "avg_train_bce_loss": total_bce_loss / total_steps, "avg_train_huber_loss": total_huber_loss / total_steps, "avg_train_consecutive_loss": total_consecutive_loss / total_steps, "avg_train_softmean_loss": total_softmean_loss / total_steps,  "val_loss": validation_loss, "val_bce_loss": validation_bce_loss, "val_huber_loss": validation_huber_loss, "val_consecutive_loss": validation_consecutive_loss, "val_softmean_loss": validation_softmean_loss})
 
     # log results after training for one epoch
     total_loss = total_loss.item()
@@ -231,20 +224,20 @@ def train_epoch(
         print(f'True logits: {torch.sum(predictions*borders, dim=1)}')
         print(f'False logits: {torch.sum(predictions*(1-borders), dim=1)}')
 
-    #wandb.log(
-        #{"epoch": i, "step": total_steps, "avg_train_loss": total_loss / total_steps,
-         #"avg_train_bce_loss": total_bce_loss / total_steps, "avg_train_huber_loss": total_huber_loss / total_steps,
-         #"avg_train_consecutive_loss": total_consecutive_loss / total_steps,
-         #"avg_train_softmean_loss": total_softmean_loss / total_steps, "val_loss": validation_loss,
-         #"val_bce_loss": validation_bce_loss, "val_huber_loss": validation_huber_loss,
-         #"val_consecutive_loss": validation_consecutive_loss, "val_softmean_loss": validation_softmean_loss})
+    wandb.log(
+        {"epoch": epoch, "step": total_steps, "avg_train_loss": total_loss / total_steps,
+         "avg_train_bce_loss": total_bce_loss / total_steps, "avg_train_huber_loss": total_huber_loss / total_steps,
+         "avg_train_consecutive_loss": total_consecutive_loss / total_steps,
+         "avg_train_softmean_loss": total_softmean_loss / total_steps, "val_loss": val_loss,
+         "val_bce_loss": val_bce_loss, "val_huber_loss": val_huber_loss,
+         "val_consecutive_loss": val_consecutive_loss, "val_softmean_loss": val_softmean_loss})
 
     return avg_loss, best_val_loss
 
 def train(scope: dict):
     device = scope['devices'][0]
 
-    #wandb.init(project="event_detecting", entity="bakicsara97")
+    wandb.init()
 
     bam_idx = BamIndex(scope['bam_file'])
 
@@ -257,7 +250,7 @@ def train(scope: dict):
         kernel_size_all=scope['kernel_all'],
     ).to(device)
 
-    #wandb.watch(model)
+    wandb.watch(model)
 
     # init custom loss function
     loss_f = CustomLoss(
@@ -297,7 +290,7 @@ def train(scope: dict):
         ) # TODO myb do not evaluate on padded part of the signal
 
     print(f'Model saved to {scope["save_model"]}')
-    #wandb.finish()
+    wandb.finish()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
