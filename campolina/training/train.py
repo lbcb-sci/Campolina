@@ -1,5 +1,4 @@
 import logging
-import torch.utils.benchmark
 import wandb
 import numpy as np
 
@@ -18,6 +17,9 @@ def train(scope: dict):
 
     wandb.init()
 
+    print(device)
+    #exit()
+
     logger.info('initializing model...')
     model = EventDetector(
         in_channels=scope['in_channels'], 
@@ -26,6 +28,8 @@ def train(scope: dict):
         kernel_size_one=scope['kernel_one'], 
         kernel_size_all=scope['kernel_all'],
     ).to(device)
+
+    model = torch.compile(model)
 
     wandb.watch(model)
 
@@ -90,6 +94,8 @@ def train_epoch(
 
     model.train()
 
+    logger = logging.getLogger('train_epoch')
+
     total_loss = total_bce_loss = total_huber_loss = total_consecutive_loss = total_softmean_loss = 0.0
     total_examples = total_steps = patience = 0
 
@@ -102,7 +108,7 @@ def train_epoch(
 
     for batch, borders in batches:
         total_steps += 1
-        print(f'Step {total_steps}')
+        logger.info(f'step {total_steps}')
 
         step_data = train_step(
             batch=batch, 
@@ -145,14 +151,14 @@ def train_epoch(
 
             if best_val_loss is None:
                 best_val_loss = val_loss
-                print('Saving first version of the model...')
+                logger.info('saving first version of the model...')
                 torch.save(model.state_dict(), scope['save_model'])
-                print('Model saved.')
+                logger.info('model saved')
 
             if val_loss < best_val_loss:
-                print(f'Saving new version of model with the lowest validation loss: {val_loss} < {best_val_loss}...')
+                logger.info(f'saving new version of model with the lowest validation loss: {val_loss:.2f} < {best_val_loss:.2f}...')
                 torch.save(model.state_dict(), scope['save_model'])
-                print('Model saved.')
+                logger.info('model saved')
                 best_val_loss = val_loss
 
             else: patience += 1
@@ -233,7 +239,7 @@ def train_step(
     loss, bce_loss, huber_loss, consecutive_loss, softmean_loss = loss_f(batch, predictions, labels)
 
     if (total_steps + 1) % scope['log_interval'] == 0:
-        print(f'Step {total_steps+1} Loss: {loss.item()}', flush=True)
+        logging.getLogger('train_step').info(f'step {total_steps+1}, loss: {loss.item()}')
         #num_predicted_events = torch.sum(torch.where(torch.sigmoid(torch.squeeze(predictions)) > 0.5, torch.tensor(1), torch.tensor(0)), dim=1).int()
         #num_true_events = torch.sum(labels, dim=1).int()
         #print(f'Num predicted vs true num events:\n\t{num_predicted_events[:10]}\n\t{num_true_events[:10]}, '

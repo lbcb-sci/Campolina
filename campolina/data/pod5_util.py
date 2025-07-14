@@ -232,8 +232,6 @@ def comp_tstat_old(cumsum_sig, cumsum_sig_square, s_len, w_len):
 
     return tstat
 
-
-
 def process_chunk(aln, read, adjust_type=None, predict=False, chunk_len=6000, w_len=3):
     start1 = time.time()
     signal = read.signal
@@ -277,8 +275,6 @@ def process_chunk(aln, read, adjust_type=None, predict=False, chunk_len=6000, w_
     signal_chunks = list(np.stack((signal_chunks, diff, w_means, w_stds, tstat1), axis=1))
 
     return signal_chunks, chunk_borders, identifiers
-
-
 
 def process_chunk2(aln, read, adjust_borders=None, predict=False, chunk_len=6000):
     signal = read.signal
@@ -335,7 +331,6 @@ def process_chunk2(aln, read, adjust_borders=None, predict=False, chunk_len=6000
         identifiers = None
 
     return signal_chunks, chunk_borders, identifiers
-
 
 def get_pod5_readid_pairs(path, recursive=False):
     if path.is_file():

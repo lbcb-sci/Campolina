@@ -28,7 +28,6 @@ if __name__ == '__main__':
         scope["devices"] = [torch.device("cpu")]
 
     logging.basicConfig(level=logging.INFO)
-    
     logging.info(f'using {scope["devices"]}')
 
     train(scope) # main function

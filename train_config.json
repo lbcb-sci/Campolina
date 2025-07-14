@@ -5,10 +5,10 @@
     "batch_size": 1024,
     "val_batch_size": 4096,
     "lr": 1e-3,
-    "gpu": [7],
+    "gpu": [2, 3, 4],
     "epochs": 1,
     "save_model": "22052025_Focal_focalalpha0_8_focalgamma_1_alpha5000_beta0_gamma_0_epoch300_eta10_hubermargin10_5channel_400bps_model.pth",
-    "log_interval": 10,
+    "log_interval": 100,
     "in_channels": 5,
     "out_channels": [
         32,
