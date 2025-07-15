@@ -27,17 +27,7 @@ def train(scope: dict):
     wandb.watch(model)
 
     logger.info('initializing loss function...')
-    loss_f = CustomLoss(
-        alpha=scope['bce_alpha'], 
-        beta=scope['huber_beta'], 
-        gamma=scope['consecutive_gamma'], 
-        delta=scope['softmean_delta'],
-        focal_alpha=scope['focal_alpha'], 
-        focal_gamma=scope['focal_gamma'], 
-        eta=scope['logit_eta'],
-        huber_delta=scope['huber_delta'], 
-        margin=scope['huber_margin'],
-    )
+    loss_f = CustomLoss.from_dict(scope)
 
     logger.info('initializing optimizer...')
     optimizer = torch.optim.AdamW(
@@ -51,9 +41,7 @@ def train(scope: dict):
     bam_idx = BamIndex(scope['bam_file'])
 
     for epoch in range(1, scope['epochs']+1):
-
         logger.info(f'[[starting epoch {epoch}...]]')
-
         train_epoch(
             bam_idx=bam_idx, 
             model=model, 
@@ -131,7 +119,7 @@ def train_epoch(
                 patience = 0
 
             if val_loss < best_val_loss:
-                logger.info(f'saving new version of model with the lowest val_loss: {val_loss:.2f} < {best_val_loss:.2f}...')
+                logger.info(f'saving new version of model with the lowest val_loss: {val_loss:.4f} < {best_val_loss:.4f}...')
                 torch.save(model.state_dict(), scope['save_model'])
                 logger.info('model saved')
                 best_val_loss = val_loss
@@ -165,14 +153,14 @@ def train_step(
     loss.backward()
     optimizer.step()
 
-    report = dict()
-    report['loss'] = loss.item()
-    report['focal_loss'] = focal.item()
-    report['huber_loss'] = huber.item()
-    report['consecutive_loss'] = consec.item()
-    report['softmean_loss'] = softmean.item()
-    report['predictions'] = predictions.detach()
-    return report
+    return {
+        'loss': loss.item(),
+        'focal_loss': focal.item(),
+        'huber_loss': huber.item(),
+        'consecutive_loss': consec.item(),
+        'softmean_loss': softmean.item(),
+        'predictions': predictions.detach(),
+    }
 
 def eval_model(
           bam_idx: BamIndex, 
@@ -214,21 +202,21 @@ def eval_model(
 
         logger.info('model evaluation done.')
 
-        report = {}
-        report['loss'] = sumloss / steps
-        report['focal_loss'] = sumfocal / steps
-        report['huber_loss'] = sumhuber / steps
-        report['consecutive_loss'] = sumconsec / steps
-        report['softmean_loss'] = sumsoftmean / steps
-        report['predictions'] = full_predictions
-        return report
+        return {
+            'loss': sumloss / steps,
+            'focal_loss': sumfocal / steps,
+            'huber_loss': sumhuber / steps,
+            'consecutive_loss': sumconsec / steps,
+            'softmean_loss': sumsoftmean / steps,
+            'predictions': full_predictions,
+        }
 
 def print_eval(epoch: int, steps: int, report: dict, patience: int):
     print(f'\nEvaluation @ epoch {epoch} @ step {steps}:')
+    print(f'-- Total    Loss = {report["loss"]:.4f}')
+    print(f'-- Focal    Loss = {report["focal_loss"]:.4f}')
+    print(f'-- Huber    Loss = {report["huber_loss"]:.4f}')
+    print(f'-- Consec   Loss = {report["consecutive_loss"]:.4f}')
+    print(f'-- Softmean Loss = {report["softmean_loss"]:.4f}')
     print(f'-- Patience      = {patience}')
-    print(f'-- Total    Loss = {report["loss"]:.2f}')
-    print(f'-- Focal    Loss = {report["focal_loss"]:.2f}')
-    print(f'-- Huber    Loss = {report["huber_loss"]:.2f}')
-    print(f'-- Consec   Loss = {report["consecutive_loss"]:.2f}')
-    print(f'-- Softmean Loss = {report["softmean_loss"]:.2f}')
     print('', flush=True)

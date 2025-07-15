@@ -1,8 +1,7 @@
 import torch
-from torch import Tensor
-from torch import nn
-from torch.nn.modules.loss import _Loss
+from torch import nn, Tensor
 from torch.nn import BCEWithLogitsLoss, HuberLoss, L1Loss
+from torch.nn.modules.loss import _Loss
 
 class CustomLoss(_Loss):
     def __init__(
@@ -29,7 +28,20 @@ class CustomLoss(_Loss):
         self.focal_loss = FocalLoss(alpha=focal_alpha, gamma=focal_gamma)
         self.huber_loss = HuberLoss(delta=huber_delta)
         self.soft_segment_mean_loss = SoftSegmentMean()
-        #self.normalizedl1 = NormalizedL1(margin=margin)
+
+    @staticmethod
+    def from_dict(scope: dict):
+        return CustomLoss(
+            alpha=scope['bce_alpha'], 
+            beta=scope['huber_beta'], 
+            gamma=scope['consecutive_gamma'], 
+            delta=scope['softmean_delta'],
+            focal_alpha=scope['focal_alpha'], 
+            focal_gamma=scope['focal_gamma'], 
+            eta=scope['logit_eta'],
+            huber_delta=scope['huber_delta'],
+            margin=scope['huber_margin'],
+        )
 
     def forward(self, signals: Tensor, predictions: Tensor, target: Tensor) -> Tensor:
         probabilities = torch.sigmoid(self.eta * predictions)
@@ -42,8 +54,8 @@ class CustomLoss(_Loss):
         consec = torch.mean(torch.sum(probabilities[:,1:] * probabilities[:,:-1], dim=1))
         softsegment = self.soft_segment_mean_loss(signals, probabilities, target)
 
-        weights = Tensor([self.alpha, self.beta, self.gamma, self.delta]).cuda()
-        losses = torch.stack((focal, huber, consec, softsegment))
+        weights = Tensor([self.alpha, self.beta, self.gamma, self.delta]).to(predictions.device)
+        losses  = torch.stack((focal, huber, consec, softsegment))
         return (weights @ losses), focal, huber, consec, softsegment
         #return self.alpha*bce_loss + self.beta*huber_loss + self.gamma*consecutive_loss + self.delta*soft_segment_loss, bce_loss, huber_loss, consecutive_loss, soft_segment_loss
 
@@ -98,7 +110,7 @@ class SoftSegmentMean(nn.Module):
 
         return final_loss
 
-### unused ?
+### TODO unused ? 
 
 class NormalizedL1(nn.Module):
     def __init__(self, margin=0):
