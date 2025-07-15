@@ -107,7 +107,7 @@ def train_epoch(
             loss_f=loss_f, 
         )
 
-        logger.info(f'step {total_steps}, loss = {train_report["loss"]:.2f}')
+        logger.info(f'step {total_steps}, loss = {train_report["loss"]:.4f}')
 
         if total_steps % scope['eval_interval'] == 0:
 
@@ -155,7 +155,7 @@ def train_step(
     batch, labels = torch.Tensor(batch).to(device), torch.Tensor(labels).to(device)
     predictions = torch.squeeze(model(batch), dim=2)
 
-    loss, bce, huber, consec, softmean = loss_f(batch, predictions, labels)
+    loss, focal, huber, consec, softmean = loss_f(batch, predictions, labels)
 
     if torch.isnan(loss):
         logger = logging.getLogger('train_step')
@@ -167,7 +167,7 @@ def train_step(
 
     report = dict()
     report['loss'] = loss.item()
-    report['bce_loss'] = bce.item()
+    report['focal_loss'] = focal.item()
     report['huber_loss'] = huber.item()
     report['consecutive_loss'] = consec.item()
     report['softmean_loss'] = softmean.item()
@@ -187,7 +187,7 @@ def eval_model(
     full_predictions = []; full_labels = []
 
     # init losses
-    sumloss = sumbce = sumhuber = sumconsec = sumsoftmean = 0.0
+    sumloss = sumfocal = sumhuber = sumconsec = sumsoftmean = 0.0
     steps = 0
 
     logger = logging.getLogger('eval')
@@ -199,9 +199,9 @@ def eval_model(
 
             predictions = torch.squeeze(model(batch), dim=2)
 
-            loss, bce, huber, consec, softmean = loss_f(batch, predictions, labels)
+            loss, focal, huber, consec, softmean = loss_f(batch, predictions, labels)
             sumloss += loss.item()
-            sumbce += bce.item()
+            sumfocal += focal.item()
             sumhuber += huber.item()
             sumconsec += consec.item()
             sumsoftmean += softmean.item()
@@ -216,7 +216,7 @@ def eval_model(
 
         report = {}
         report['loss'] = sumloss / steps
-        report['bce_loss'] = sumbce / steps
+        report['focal_loss'] = sumfocal / steps
         report['huber_loss'] = sumhuber / steps
         report['consecutive_loss'] = sumconsec / steps
         report['softmean_loss'] = sumsoftmean / steps
@@ -227,7 +227,7 @@ def print_eval(epoch: int, steps: int, report: dict, patience: int):
     print(f'\nEvaluation @ epoch {epoch} @ step {steps}:')
     print(f'-- Patience      = {patience}')
     print(f'-- Total    Loss = {report["loss"]:.2f}')
-    print(f'-- BCE      Loss = {report["bce_loss"]:.2f}')
+    print(f'-- Focal    Loss = {report["focal_loss"]:.2f}')
     print(f'-- Huber    Loss = {report["huber_loss"]:.2f}')
     print(f'-- Consec   Loss = {report["consecutive_loss"]:.2f}')
     print(f'-- Softmean Loss = {report["softmean_loss"]:.2f}')

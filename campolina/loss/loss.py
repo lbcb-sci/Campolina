@@ -26,24 +26,25 @@ class CustomLoss(_Loss):
         self.alpha = alpha; self.beta = beta; self.gamma = gamma
         self.delta = delta; self.eta = eta; self.margin = margin
 
-        self.bce_loss = FocalLoss(alpha=focal_alpha, gamma=focal_gamma)
+        self.focal_loss = FocalLoss(alpha=focal_alpha, gamma=focal_gamma)
         self.huber_loss = HuberLoss(delta=huber_delta)
         self.soft_segment_mean_loss = SoftSegmentMean()
         #self.normalizedl1 = NormalizedL1(margin=margin)
 
     def forward(self, signals: Tensor, predictions: Tensor, target: Tensor) -> Tensor:
         probabilities = torch.sigmoid(self.eta * predictions)
+
         num_predicted_events = torch.sum(probabilities, dim=1).float() - self.margin
         num_true_events = torch.sum(target, dim=1).float()
 
-        bce = self.bce_loss(predictions, target)
+        focal = self.focal_loss(predictions, target)
         huber = self.huber_loss(num_predicted_events, num_true_events)
         consec = torch.mean(torch.sum(probabilities[:,1:] * probabilities[:,:-1], dim=1))
         softsegment = self.soft_segment_mean_loss(signals, probabilities, target)
 
         weights = Tensor([self.alpha, self.beta, self.gamma, self.delta]).cuda()
-        losses = torch.stack((bce, huber, consec, softsegment))
-        return weights @ losses, bce, huber, consec, softsegment
+        losses = torch.stack((focal, huber, consec, softsegment))
+        return (weights @ losses), focal, huber, consec, softsegment
         #return self.alpha*bce_loss + self.beta*huber_loss + self.gamma*consecutive_loss + self.delta*soft_segment_loss, bce_loss, huber_loss, consecutive_loss, soft_segment_loss
 
 class FocalLoss(_Loss):
@@ -51,10 +52,9 @@ class FocalLoss(_Loss):
             self, 
             alpha: float, 
             gamma: float, 
-            weight=None, 
-            size_average=True, 
-            reduce=None, 
-            reduction='mean',
+            size_average = True, 
+            reduce = None, 
+            reduction = 'mean',
         ):
         super().__init__(size_average, reduce, reduction)
 
