@@ -2,27 +2,21 @@
     "train_pod5": "/mnt/sod2-project/csb4/ARG/mouse_gut/data/MUX12399-T1/20230918_0819_X1_FAW69630_a539d406/pod5_subsets/barcode24/pod5s/EC/EC_train.pod5",
     "validation_pod5": "/mnt/sod2-project/csb4/ARG/mouse_gut/data/MUX12399-T1/20230918_0819_X1_FAW69630_a539d406/pod5_subsets/barcode24/pod5s/EC/EC_valid.pod5",
     "bam_file": "/mnt/sod2-project/csb4/ARG/mouse_gut/data/MUX12399-T1/20230918_0819_X1_FAW69630_a539d406/dorado_basecalls/refined_barcode24_EC_new.bam",
+    "save_model": "22052025_Focal_focalalpha0_8_focalgamma_1_alpha5000_beta0_gamma_0_epoch300_eta10_hubermargin10_5channel_400bps_model.pth",
+
     "batch_size": 1024,
     "val_batch_size": 4096,
     "lr": 1e-3,
-    "gpu": [2, 3, 4],
+    "gpu": [5],
     "epochs": 1,
-    "save_model": "22052025_Focal_focalalpha0_8_focalgamma_1_alpha5000_beta0_gamma_0_epoch300_eta10_hubermargin10_5channel_400bps_model.pth",
-    "log_interval": 100,
+    "eval_interval": 100,
+
     "in_channels": 5,
-    "out_channels": [
-        32,
-	    64,
-        64,
-        128,
-        128
-    ],
-    "classification_head": [
-        128,
-        1
-    ],
+    "out_channels": [32, 64, 64, 128, 128],
+    "classification_head": [128, 1],
     "kernel_one": 3,
     "kernel_all": 31,
+
     "bce_alpha": 5000,
     "huber_beta": 0.0,
     "consecutive_gamma": 0.0,
@@ -33,5 +27,6 @@
     "huber_delta": 20,
     "huber_margin": 10,
     "adam_epsilon": 1e-09,
+
     "introduce_losses": 0
 }
