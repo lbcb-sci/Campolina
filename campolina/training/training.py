@@ -1,11 +1,10 @@
 import logging
 import wandb
 import numpy as np
-
 import torch
 
-from campolina.data import BamIndex, load_batches
 from campolina.model.model import EventDetector
+from campolina.data import BamIndex, load_batches
 from campolina.loss import CustomLoss
 
 def train(scope: dict):
@@ -37,7 +36,6 @@ def train(scope: dict):
         focal_gamma=scope['focal_gamma'], 
         eta=scope['logit_eta'],
         huber_delta=scope['huber_delta'], 
-        pos_weight=torch.Tensor([1]).to(device), 
         margin=scope['huber_margin'],
     )
 
@@ -56,7 +54,7 @@ def train(scope: dict):
 
         logger.info(f'[[starting epoch {epoch}...]]')
 
-        train_loss, best_val_loss = train_epoch(
+        train_epoch(
             bam_idx=bam_idx, 
             model=model, 
             device=device, 
@@ -65,7 +63,6 @@ def train(scope: dict):
             scope=scope, 
             best_val_loss=best_val_loss, 
             epoch=epoch, 
-            new_loss_step=scope['introduce_losses'],
         ) # TODO myb do not evaluate on padded part of the signal
 
     logger.info(f'model saved to {scope["save_model"]}')
@@ -80,7 +77,6 @@ def train_epoch(
         scope: dict, 
         best_val_loss: float, 
         epoch: int, 
-        new_loss_step,
     ):
     """
     Train the model for one epoch.
@@ -109,13 +105,11 @@ def train_epoch(
             device=device, 
             optimizer=optimizer,
             loss_f=loss_f, 
-            total_steps=total_steps,
-            scope=scope,
         )
 
         logger.info(f'step {total_steps}, loss = {train_report["loss"]:.2f}')
 
-        if (total_steps + 1) % scope['eval_interval'] == 0:
+        if total_steps % scope['eval_interval'] == 0:
 
             test_report = eval_model(
                 bam_idx=bam_idx, 
@@ -152,8 +146,6 @@ def train_step(
         device: torch.device, 
         loss_f: CustomLoss, 
         optimizer: torch.optim.Optimizer, 
-        total_steps: int,
-        scope: dict,
     ) -> dict:
     """
     Train model on a single batch.
@@ -232,7 +224,7 @@ def eval_model(
         return report
 
 def print_eval(epoch: int, steps: int, report: dict, patience: int):
-    print(f'Evaluation @ epoch {epoch} @ step {steps}:')
+    print(f'\nEvaluation @ epoch {epoch} @ step {steps}:')
     print(f'-- Patience      = {patience}')
     print(f'-- Total    Loss = {report["loss"]:.2f}')
     print(f'-- BCE      Loss = {report["bce_loss"]:.2f}')
