@@ -1,11 +1,12 @@
+import time
 import logging
 import wandb
-import numpy as np
 import torch
+import numpy as np
 
-from campolina.model.model import EventDetector
-from campolina.data import BamIndex, load_batches
+from campolina.model import EventDetector
 from campolina.loss import CustomLoss
+from campolina.data import BamIndex, load_batches
 
 def train(scope: dict):
     device = scope['devices'][0]
@@ -23,6 +24,9 @@ def train(scope: dict):
         kernel_size_one=scope['kernel_one'], 
         kernel_size_all=scope['kernel_all'],
     ).to(device)
+
+    #logger.info('torch.compile(model)...')
+    #model = torch.compile(model, fullgraph=True, backend='inductor')
 
     wandb.watch(model)
 
@@ -42,6 +46,8 @@ def train(scope: dict):
 
     for epoch in range(1, scope['epochs']+1):
         logger.info(f'[[starting epoch {epoch}...]]')
+
+        start = time.time()
         train_epoch(
             bam_idx=bam_idx, 
             model=model, 
@@ -52,6 +58,10 @@ def train(scope: dict):
             best_val_loss=best_val_loss, 
             epoch=epoch, 
         ) # TODO myb do not evaluate on padded part of the signal
+
+        end = time.time()
+        runtime = end - start
+        logger.info(f'[[epoch {epoch} took {runtime / 60} minutes]]')
 
     logger.info(f'model saved to {scope["save_model"]}')
     wandb.finish()
@@ -195,10 +205,10 @@ def eval_model(
             sumsoftmean += softmean.item()
             steps += 1
 
-            if not valid:
-                predictions = np.where((1 / (1 + np.exp(-predictions.detach().cpu().numpy()))) > 0.5, 1, 0)
-                full_predictions.extend(list(predictions))
-                full_labels.extend(labels.cpu().numpy())
+            #if not valid: # TODO
+                #predictions = np.where((1 / (1 + np.exp(-predictions.detach().cpu().numpy()))) > 0.5, 1, 0)
+                #full_predictions.extend(list(predictions))
+                #full_labels.extend(labels.cpu().numpy())
 
         logger.info('model evaluation done.')
 
@@ -213,10 +223,10 @@ def eval_model(
 
 def print_eval(epoch: int, steps: int, report: dict, patience: int):
     print(f'\nEvaluation @ epoch {epoch} @ step {steps}:')
-    print(f'-- Total    Loss = {report["loss"]:.4f}')
-    print(f'-- Focal    Loss = {report["focal_loss"]:.4f}')
-    print(f'-- Huber    Loss = {report["huber_loss"]:.4f}')
-    print(f'-- Consec   Loss = {report["consecutive_loss"]:.4f}')
-    print(f'-- Softmean Loss = {report["softmean_loss"]:.4f}')
-    print(f'-- Patience      = {patience}')
+    print(f'-- Total    Loss {report["loss"]:.4f}')
+    print(f'-- Focal    Loss {report["focal_loss"]:.4f}')
+    print(f'-- Huber    Loss {report["huber_loss"]:.4f}')
+    print(f'-- Consec   Loss {report["consecutive_loss"]:.4f}')
+    print(f'-- Softmean Loss {report["softmean_loss"]:.4f}')
+    print(f'-- Patience      {patience}')
     print('', flush=True)
