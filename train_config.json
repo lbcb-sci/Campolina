@@ -6,9 +6,9 @@
 
     "batch_size": 1024,
     "val_batch_size": 4096,
-    "gpu": [7],
+    "gpu": [3],
     "epochs": 2,
-    "eval_interval": 100,
+    "eval_interval": 200,
 
     "lr": 1e-3,
     "adam_epsilon": 1e-09,
@@ -19,9 +19,10 @@
     "kernel_one": 3,
     "kernel_all": 31,
 
-    "bce_alpha": 1.0,
-    "huber_beta": 0.0,
-    "consecutive_gamma": 0.0,
+    "bce_alpha": 5000.0,
+    "huber_beta": 0.05,
+    "consecutive_gamma": 0.1,
+
     "softmean_delta": 0.0,
 
     "logit_eta": 10,

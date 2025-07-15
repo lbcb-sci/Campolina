@@ -27,7 +27,7 @@ class CustomLoss(_Loss):
 
         self.focal_loss = FocalLoss(alpha=focal_alpha, gamma=focal_gamma)
         self.huber_loss = HuberLoss(delta=huber_delta)
-        self.soft_segment_mean_loss = SoftSegmentMean()
+        #self.soft_segment_mean_loss = SoftSegmentMean()
 
     @staticmethod
     def from_dict(scope: dict):
@@ -52,11 +52,11 @@ class CustomLoss(_Loss):
         focal = self.focal_loss(predictions, target)
         huber = self.huber_loss(num_predicted_events, num_true_events)
         consec = torch.mean(torch.sum(probabilities[:,1:] * probabilities[:,:-1], dim=1))
-        softsegment = self.soft_segment_mean_loss(signals, probabilities, target)
+        #softsegment = self.soft_segment_mean_loss(signals, probabilities, target)
 
-        weights = Tensor([self.alpha, self.beta, self.gamma, self.delta]).to(predictions.device)
-        losses  = torch.stack((focal, huber, consec, softsegment))
-        return (weights @ losses), focal, huber, consec, softsegment
+        weights = Tensor([self.alpha, self.beta, self.gamma]).to(predictions.device)
+        losses  = torch.stack((focal, huber, consec))
+        return (weights @ losses), focal, huber, consec #, softsegment
         #return self.alpha*bce_loss + self.beta*huber_loss + self.gamma*consecutive_loss + self.delta*soft_segment_loss, bce_loss, huber_loss, consecutive_loss, soft_segment_loss
 
 class FocalLoss(_Loss):
@@ -89,6 +89,8 @@ class FocalLoss(_Loss):
         elif self.reduction == "sum": loss = loss.sum()
         return loss
 
+### TODO unused ? 
+
 class SoftSegmentMean(nn.Module):
     def __init__(self):
         super().__init__()
@@ -109,8 +111,6 @@ class SoftSegmentMean(nn.Module):
         final_loss = torch.mean(final_loss)
 
         return final_loss
-
-### TODO unused ? 
 
 class NormalizedL1(nn.Module):
     def __init__(self, margin=0):
@@ -152,7 +152,6 @@ class DiceLoss(nn.Module):
         dice = (2.*intersection + self.smooth) / (predictions.sum() + targets.sum() + self.smooth)
 
         return 1 - dice
-
 
 def custom_loss(bce_f, huber_f, predictions, labels, alpha=0.05):
     num_predicted_events = torch.sum(torch.where(torch.sigmoid(torch.squeeze(predictions)) > 0.5, torch.tensor(1), torch.tensor(0)), dim=1)

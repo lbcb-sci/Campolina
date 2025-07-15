@@ -25,8 +25,8 @@ def train(scope: dict):
         kernel_size_all=scope['kernel_all'],
     ).to(device)
 
-    #logger.info('torch.compile(model)...')
-    #model = torch.compile(model, fullgraph=True, backend='inductor')
+    logger.info('torch.compile(model)...')
+    model = torch.compile(model, fullgraph=True, backend='inductor')
 
     wandb.watch(model)
 
@@ -63,7 +63,7 @@ def train(scope: dict):
         runtime = end - start
         logger.info(f'[[epoch {epoch} took {runtime / 60} minutes]]')
 
-    logger.info(f'model saved to {scope["save_model"]}')
+    #logger.info(f'model saved to {scope["save_model"]}')
     wandb.finish()
 
 def train_epoch(
@@ -71,7 +71,7 @@ def train_epoch(
         model: EventDetector, 
         device: torch.device, 
         optimizer: torch.optim.Optimizer, 
-        loss_f: CustomLoss, 
+        loss_f: CustomLoss,
         scope: dict, 
         best_val_loss: float, 
         epoch: int, 
@@ -124,13 +124,13 @@ def train_epoch(
             if best_val_loss is None:
                 best_val_loss = val_loss
                 logger.info('saving first version of the model...')
-                torch.save(model.state_dict(), scope['save_model'])
+                save_model(model, scope)
                 logger.info('model saved')
                 patience = 0
 
             if val_loss < best_val_loss:
                 logger.info(f'saving new version of model with the lowest val_loss: {val_loss:.4f} < {best_val_loss:.4f}...')
-                torch.save(model.state_dict(), scope['save_model'])
+                save_model(model, scope)
                 logger.info('model saved')
                 best_val_loss = val_loss
                 patience = 0
@@ -153,7 +153,7 @@ def train_step(
     batch, labels = torch.Tensor(batch).to(device), torch.Tensor(labels).to(device)
     predictions = torch.squeeze(model(batch), dim=2)
 
-    loss, focal, huber, consec, softmean = loss_f(batch, predictions, labels)
+    loss, focal, huber, consec = loss_f(batch, predictions, labels)
 
     if torch.isnan(loss):
         logger = logging.getLogger('train_step')
@@ -168,7 +168,6 @@ def train_step(
         'focal_loss': focal.item(),
         'huber_loss': huber.item(),
         'consecutive_loss': consec.item(),
-        'softmean_loss': softmean.item(),
         'predictions': predictions.detach(),
     }
 
@@ -185,7 +184,7 @@ def eval_model(
     full_predictions = []; full_labels = []
 
     # init losses
-    sumloss = sumfocal = sumhuber = sumconsec = sumsoftmean = 0.0
+    sumloss = sumfocal = sumhuber = sumconsec = 0.0
     steps = 0
 
     logger = logging.getLogger('eval')
@@ -197,12 +196,11 @@ def eval_model(
 
             predictions = torch.squeeze(model(batch), dim=2)
 
-            loss, focal, huber, consec, softmean = loss_f(batch, predictions, labels)
+            loss, focal, huber, consec = loss_f(batch, predictions, labels)
             sumloss += loss.item()
             sumfocal += focal.item()
             sumhuber += huber.item()
             sumconsec += consec.item()
-            sumsoftmean += softmean.item()
             steps += 1
 
             #if not valid: # TODO
@@ -217,9 +215,11 @@ def eval_model(
             'focal_loss': sumfocal / steps,
             'huber_loss': sumhuber / steps,
             'consecutive_loss': sumconsec / steps,
-            'softmean_loss': sumsoftmean / steps,
             'predictions': full_predictions,
         }
+
+def save_model(model: EventDetector, scope: dict):
+    torch.save(model.state_dict(), f'models/{scope["save_model"]}')
 
 def print_eval(epoch: int, steps: int, report: dict, patience: int):
     print(f'\nEvaluation @ epoch {epoch} @ step {steps}:')
@@ -227,6 +227,5 @@ def print_eval(epoch: int, steps: int, report: dict, patience: int):
     print(f'-- Focal    Loss {report["focal_loss"]:.4f}')
     print(f'-- Huber    Loss {report["huber_loss"]:.4f}')
     print(f'-- Consec   Loss {report["consecutive_loss"]:.4f}')
-    print(f'-- Softmean Loss {report["softmean_loss"]:.4f}')
     print(f'-- Patience      {patience}')
     print('', flush=True)
