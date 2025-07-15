@@ -8,7 +8,7 @@
     "val_batch_size": 4096,
     "gpu": [3],
     "epochs": 10,
-    "eval_interval": 3,
+    "eval_interval": 250,
 
     "lr": 1e-3,
     "adam_epsilon": 1e-09,

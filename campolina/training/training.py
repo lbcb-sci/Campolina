@@ -223,7 +223,8 @@ def mkname(epoch: int, step: int, scope: dict):
 
 def save_model(model: EventDetector, epoch: int, step: int, scope: dict):
     try: os.mkdir('models')
-    finally: torch.save(model.state_dict(), f'models/{mkname(epoch, step, scope)}')
+    except: pass
+    torch.save(model.state_dict(), f'models/{mkname(epoch, step, scope)}')
 
 def print_eval(epoch: int, steps: int, report: dict, patience: int):
     print(f'\nEvaluation @ epoch {epoch} @ step {steps}:')

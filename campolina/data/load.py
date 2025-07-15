@@ -2,13 +2,12 @@ import numpy as np
 from tqdm import tqdm
 
 from .pod5_util import process_chunk, get_reads
-from .bam_util import BamIndex
+from .bam_index import BamIndex
 
 def load_batches(bam_idx: BamIndex, pod5_path: str, batch_size: int, predict: bool = False): 
     """
     Load data for training or validation.
     """
-
     # TODO what if i preload a batch of batch_size signals and then yield batches as long as i can and then load batch_size signal again?
     current_batch = []; current_borders = []; current_identifiers = []
 

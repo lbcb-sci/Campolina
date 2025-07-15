@@ -1,12 +1,13 @@
+import logging
 from dataclasses import dataclass
 from collections import defaultdict
 from typing import Generator
-from tqdm import tqdm
 from pysam import AlignedSegment, AlignmentFile
 
 @dataclass
 class BamIndex:
     bampath: str
+    logger = logging.getLogger('bam_index')
 
     def __post_init__(self):
         self.bam_f = None
@@ -25,14 +26,14 @@ class BamIndex:
         if self.bam_f is None: self.open_bam()
 
         self.bam_idx = defaultdict(list)
-        tqdm.write('Indexing BAM file by read ids...')
+        self.logger.info('indexing BAM file by read ids...')
 
         while True:
             read_ptr = self.bam_f.tell()
 
             try: read = next(self.bam_f)
             except StopIteration:
-                tqdm.write('Finished reading bam file.')
+                self.logger.info('finished reading bam file.')
                 break
 
             read_id = read.query_name
@@ -50,7 +51,7 @@ class BamIndex:
 
         try: read_ptrs = self.bam_idx[read_id]
         except KeyError:
-            #tqdm.write(f'Cannot find read {read_id} in bam index.')
+            self.logger.warning(f'cannot find read {read_id} in bam index.')
             return None
 
         for read_ptr in read_ptrs:
@@ -58,9 +59,10 @@ class BamIndex:
 
             try: bam_read = next(self.bam_f)
             except OSError:
-                tqdm.write(f'Cannot extract read {read_id} from bam index.')
+                self.logger.warning(f'cannot extract read {read_id} from BAM index.')
                 continue
 
-            assert str(bam_read.query_name) == read_id, (tqdm.write(f'Given read id {read_id} does not match read retrieved '
-                                                               f'from bam index {bam_read.query_name}.'))
+            assert str(bam_read.query_name) == read_id, \
+                self.logger.error(f'read id {read_id} doesnt match read retrieved from index {bam_read.query_name}.')
+
             yield bam_read

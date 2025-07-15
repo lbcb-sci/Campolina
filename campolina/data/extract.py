@@ -9,7 +9,7 @@ from tqdm import tqdm
 import multiprocessing as mp
 from collections import Counter
 
-from bam_util import BamIndex
+from campolina.data.bam_index import BamIndex
 from pod5_util import get_reads, process_chunk
 
 

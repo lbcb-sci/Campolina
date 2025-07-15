@@ -89,6 +89,20 @@ class FocalLoss(_Loss):
         elif self.reduction == "sum": loss = loss.sum()
         return loss
 
+class ConsecPenalty(nn.Module):
+    def __init__(self): super().__init__()
+
+    def forward(self, predictions: Tensor) -> Tensor:
+        preds = torch.sigmoid(predictions) - 0.5
+
+        S = torch.zeros_like(preds)
+        S[:, 0] = torch.relu(preds[:, 0])
+
+        for t in range(1, preds.size(1)):
+            S[:, t] = torch.relu(S[:, t - 1] + preds[:, t])
+
+        return S.sum()
+
 ### TODO unused ? 
 
 class SoftSegmentMean(nn.Module):
