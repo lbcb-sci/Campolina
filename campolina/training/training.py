@@ -1,5 +1,4 @@
-import time
-import logging
+import time, os, logging
 import wandb
 import torch
 import numpy as np
@@ -124,13 +123,13 @@ def train_epoch(
             if best_val_loss is None:
                 best_val_loss = val_loss
                 logger.info('saving first version of the model...')
-                save_model(model, scope)
+                save_model(model, epoch, total_steps, scope)
                 logger.info('model saved')
                 patience = 0
 
-            if val_loss < best_val_loss:
+            elif val_loss < best_val_loss:
                 logger.info(f'saving new version of model with the lowest val_loss: {val_loss:.4f} < {best_val_loss:.4f}...')
-                save_model(model, scope)
+                save_model(model, epoch, total_steps, scope)
                 logger.info('model saved')
                 best_val_loss = val_loss
                 patience = 0
@@ -218,8 +217,13 @@ def eval_model(
             'predictions': full_predictions,
         }
 
-def save_model(model: EventDetector, scope: dict):
-    torch.save(model.state_dict(), f'models/{scope["save_model"]}')
+def mkname(epoch: int, step: int, scope: dict):
+    alpha, beta, gamma = scope['bce_alpha'], scope['huber_beta'], scope['consecutive_gamma']
+    return f'epoch[{epoch}]_step[{step}]_alpha[{alpha}]_beta[{beta}]_gamma[{gamma}].pth'
+
+def save_model(model: EventDetector, epoch: int, step: int, scope: dict):
+    try: os.mkdir('models')
+    finally: torch.save(model.state_dict(), f'models/{mkname(epoch, step, scope)}')
 
 def print_eval(epoch: int, steps: int, report: dict, patience: int):
     print(f'\nEvaluation @ epoch {epoch} @ step {steps}:')
@@ -227,5 +231,5 @@ def print_eval(epoch: int, steps: int, report: dict, patience: int):
     print(f'-- Focal    Loss {report["focal_loss"]:.4f}')
     print(f'-- Huber    Loss {report["huber_loss"]:.4f}')
     print(f'-- Consec   Loss {report["consecutive_loss"]:.4f}')
-    print(f'-- Patience      {patience}')
+    print(f'-- Patience {patience}')
     print('', flush=True)

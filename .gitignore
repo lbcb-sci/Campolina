@@ -2,3 +2,4 @@ __pycache__
 wandb/**
 *.pth
 torch_compile_debug/**
+models/**
