@@ -40,7 +40,7 @@ class BamIndex:
 
         #self.bam_idx = defaultdict(list)
         self.bam_idx = defaultdict(int)
-        self.logger.info('cached index not found: indexing BAM file by read ids...')
+        self.logger.info('cached index not found -- indexing BAM file by read ids...')
 
         while True:
             read_ptr = self.bam_file.tell()

@@ -3,9 +3,12 @@ import torch
 
 from campolina.model import EventDetector
 from campolina.loss import CustomLoss
-from campolina.data.load_mp import load_batches_mp
-from campolina.data import load_batches, BamIndex
-from campolina.data.load import load_batches2
+from campolina.data import (
+    BamIndex, 
+    load_batches_seq, 
+    load_batches_mp, 
+    DONE_SIGNAL,
+)
 
 def train(scope: dict):
     device = scope['devices'][0]
@@ -44,7 +47,8 @@ def train(scope: dict):
     for epoch in range(1, scope['epochs']+1):
         logger.info(f'[[starting epoch {epoch}...]]')
 
-        #start = time.time()
+        start = time.time()
+
         train_epoch(
             bam_index=bam_index,
             model=model, 
@@ -56,9 +60,9 @@ def train(scope: dict):
             epoch=epoch, 
         ) # TODO myb do not evaluate on padded part of the signal
 
-        #end = time.time()
-        #runtime = end - start
-        #logger.info(f'[[epoch {epoch} took {runtime / 60} minutes]]')
+        end = time.time()
+        runtime = end - start
+        logger.info(f'[[epoch {epoch} took {runtime / 60} minutes]]')
 
     #logger.info(f'model saved to {scope["save_model"]}')
     #wandb.finish()
@@ -82,21 +86,35 @@ def train_epoch(
     logger = logging.getLogger('train_epoch')
 
     batches: torch.multiprocessing.Queue
+    processes: list[torch.multiprocessing.Process]
     processes, batches = load_batches_mp(
         bam_index,
         scope['train_pod5'],
         batch_size=scope['batch_size'],
     )
 
-    print(processes)
-
     time.sleep(2)
     total_steps = patience = 0
 
-    while not batches.empty():
+    log_interval = 10
+    running_loss = 0.0
+
+    done_signals = 0
+
+    while done_signals < len(processes):
+
+        try: batch, borders = batches.get(timeout=10)
+        except:
+            if done_signals == len(processes): break
+            else: 
+                logger.error(f'timeout but processes are not done (done signals = {done_signals})')
+                continue
+
+        if batch == DONE_SIGNAL:
+            done_signals += 1
+            continue
+
         total_steps += 1
-        
-        batch, borders = batches.get(timeout=10)
 
         train_report = train_step(
             batch=batch, 
@@ -107,8 +125,11 @@ def train_epoch(
             loss_f=loss_f, 
         )
 
-        if total_steps % 10 == 0:
-            logger.info(f'step {total_steps}, loss = {train_report["loss"]:.4f}, queue~{batches.qsize()}')
+        running_loss += train_report["loss"]
+
+        if total_steps % log_interval == 0:
+            logger.info(f'step {total_steps}, loss = {running_loss / log_interval:.4f}, queue~{batches.qsize()}')
+            running_loss = 0.0
 
         if total_steps % scope['eval_interval'] == 0:
 
@@ -176,7 +197,7 @@ def train_step(
         'predictions': predictions.detach(),
     }
 
-def eval_model(
+def eval_model( # TODO make this function faster
         bam_index: BamIndex,
         model: EventDetector, 
         device: torch.device, 
@@ -196,7 +217,7 @@ def eval_model(
     logger.info('starting model evaluation...')
     with torch.no_grad():
 
-        batches = load_batches2(
+        batches = load_batches_seq( 
             bam_index,
             scope['validation_pod5'], 
             scope['val_batch_size'],

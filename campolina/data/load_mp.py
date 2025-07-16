@@ -7,6 +7,8 @@ import torch.multiprocessing as mp
 from .bam_index import BamIndex
 from .extract import get_reads, process_chunk
 
+DONE_SIGNAL = "DONE"
+
 def to_tensors(batch: list, borders: list):
     return (
         torch.tensor(np.array(batch),   dtype=torch.float32, device='cpu'), 
@@ -18,10 +20,12 @@ def load_process(
         pod5_path: str, 
         bam_idx: BamIndex,
         batch_size: int, 
-        data: mp.Queue,
+        dataset: mp.Queue,
     ): 
 
+    logging.basicConfig(level=logging.INFO, format='[%(processName)s] %(message)s')
     logger = logging.getLogger('load_process')
+    logger.info('dataloader process started')
 
     current_batch = []; current_borders = []
 
@@ -48,7 +52,7 @@ def load_process(
             current_batch.extend(signal_chunks[:to_take])
             current_borders.extend(chunk_borders[:to_take])
 
-            data.put(to_tensors(current_batch, current_borders))
+            dataset.put(to_tensors(current_batch, current_borders))
 
             remaining = len(signal_chunks) - to_take
 
@@ -56,7 +60,7 @@ def load_process(
                 current_batch = signal_chunks[to_take:to_take+batch_size]
                 current_borders = chunk_borders[to_take:to_take+batch_size]
 
-                data.put(to_tensors(current_batch, current_borders))
+                dataset.put(to_tensors(current_batch, current_borders))
 
                 to_take = to_take + batch_size
                 remaining = remaining - batch_size
@@ -68,8 +72,11 @@ def load_process(
             current_batch.extend(signal_chunks)
             current_borders.extend(chunk_borders)
 
-    if not i in bucket: return
-    data.put(to_tensors(current_batch, current_borders))
+    if i in bucket:
+        dataset.put(to_tensors(current_batch, current_borders))
+
+    logger.info('sending done signal')
+    dataset.put((DONE_SIGNAL, DONE_SIGNAL))
 
 def load_batches_mp(
         bam_index: BamIndex,
@@ -80,7 +87,7 @@ def load_batches_mp(
     ):
 
     manager = mp.Manager()
-    data = manager.Queue(maxsize=queue_maxsize)
+    dataset = manager.Queue(maxsize=queue_maxsize)
 
     buckets = [[] for _ in range(nprocesses)]
 
@@ -93,9 +100,9 @@ def load_batches_mp(
     for bucket in buckets:
         processes.append(mp.Process(
             target=load_process, 
-            args=(bucket, pod5_path, bam_index, batch_size, data),
+            args=(bucket, pod5_path, bam_index, batch_size, dataset),
         ))
 
     for process in processes: process.start()
-    return processes, data
+    return processes, dataset
 
