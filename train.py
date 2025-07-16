@@ -5,7 +5,7 @@ import warnings
 import logging
 import torch
 
-from campolina.training import train 
+from campolina import train 
 
 if __name__ == '__main__':
     warnings.filterwarnings('ignore')

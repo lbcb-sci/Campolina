@@ -1,7 +1,7 @@
 import time, os, logging
-import wandb
 import torch
 import numpy as np
+#import wandb
 
 from campolina.model import EventDetector
 from campolina.loss import CustomLoss
@@ -13,7 +13,7 @@ def train(scope: dict):
     logger = logging.getLogger('train')
     logger.setLevel(logging.INFO)
 
-    wandb.init()
+    #wandb.init()
 
     logger.info('initializing model...')
     model = EventDetector(
@@ -27,7 +27,7 @@ def train(scope: dict):
     logger.info('torch.compile(model)...')
     model = torch.compile(model, fullgraph=True, backend='inductor')
 
-    wandb.watch(model)
+    #wandb.watch(model)
 
     logger.info('initializing loss function...')
     loss_f = CustomLoss.from_dict(scope)
@@ -63,7 +63,7 @@ def train(scope: dict):
         logger.info(f'[[epoch {epoch} took {runtime / 60} minutes]]')
 
     #logger.info(f'model saved to {scope["save_model"]}')
-    wandb.finish()
+    #wandb.finish()
 
 def train_epoch(
         bam_idx: BamIndex, 
@@ -91,7 +91,6 @@ def train_epoch(
     )
 
     total_steps = patience = 0
-
     for batch, borders in batches:
         total_steps += 1
 

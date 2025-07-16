@@ -9,8 +9,8 @@ from tqdm import tqdm
 import multiprocessing as mp
 from collections import Counter
 
-from campolina.data.bam_index import BamIndex
-from pod5_util import get_reads, process_chunk
+from .bam_index import BamIndex
+from .pod5_util import get_reads, process_chunk
 
 
 def merge_npy(chunk_paths, label_paths, tgt_dir, save_src):     #TODO extremely slow, np.concatenate should be faster I guess

@@ -3,3 +3,4 @@ wandb/**
 *.pth
 torch_compile_debug/**
 models/**
+*.pkl
