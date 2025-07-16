@@ -1,19 +1,19 @@
 import time, os, logging
 import torch
-import numpy as np
-#import wandb
 
 from campolina.model import EventDetector
 from campolina.loss import CustomLoss
-from campolina.data import BamIndex, load_batches
+from campolina.data.load_mp import load_batches_mp
+from campolina.data import load_batches, BamIndex
+from campolina.data.load import load_batches2
 
 def train(scope: dict):
     device = scope['devices'][0]
 
+    torch.multiprocessing.set_start_method('spawn')
+
     logger = logging.getLogger('train')
     logger.setLevel(logging.INFO)
-
-    #wandb.init()
 
     logger.info('initializing model...')
     model = EventDetector(
@@ -27,8 +27,6 @@ def train(scope: dict):
     logger.info('torch.compile(model)...')
     model = torch.compile(model, fullgraph=True, backend='inductor')
 
-    #wandb.watch(model)
-
     logger.info('initializing loss function...')
     loss_f = CustomLoss.from_dict(scope)
 
@@ -39,16 +37,16 @@ def train(scope: dict):
         eps=scope['adam_epsilon'],
     )
 
-    best_val_loss = None
+    bam_index = BamIndex(scope['bam_file'])
 
-    bam_idx = BamIndex(scope['bam_file'])
+    best_val_loss = None
 
     for epoch in range(1, scope['epochs']+1):
         logger.info(f'[[starting epoch {epoch}...]]')
 
-        start = time.time()
+        #start = time.time()
         train_epoch(
-            bam_idx=bam_idx, 
+            bam_index=bam_index,
             model=model, 
             device=device, 
             optimizer=optimizer, 
@@ -58,15 +56,15 @@ def train(scope: dict):
             epoch=epoch, 
         ) # TODO myb do not evaluate on padded part of the signal
 
-        end = time.time()
-        runtime = end - start
-        logger.info(f'[[epoch {epoch} took {runtime / 60} minutes]]')
+        #end = time.time()
+        #runtime = end - start
+        #logger.info(f'[[epoch {epoch} took {runtime / 60} minutes]]')
 
     #logger.info(f'model saved to {scope["save_model"]}')
     #wandb.finish()
 
 def train_epoch(
-        bam_idx: BamIndex, 
+        bam_index: BamIndex,
         model: EventDetector, 
         device: torch.device, 
         optimizer: torch.optim.Optimizer, 
@@ -83,16 +81,22 @@ def train_epoch(
 
     logger = logging.getLogger('train_epoch')
 
-    batches = load_batches(
-        bam_idx=bam_idx, 
-        pod5_path=scope['train_pod5'], 
-        batch_size=scope['batch_size'], 
-        predict=False,
+    batches: torch.multiprocessing.Queue
+    processes, batches = load_batches_mp(
+        bam_index,
+        scope['train_pod5'],
+        batch_size=scope['batch_size'],
     )
 
+    print(processes)
+
+    time.sleep(2)
     total_steps = patience = 0
-    for batch, borders in batches:
+
+    while not batches.empty():
         total_steps += 1
+
+        batch, borders = batches.get(timeout=10)
 
         train_report = train_step(
             batch=batch, 
@@ -103,12 +107,12 @@ def train_epoch(
             loss_f=loss_f, 
         )
 
-        logger.info(f'step {total_steps}, loss = {train_report["loss"]:.4f}')
+        logger.info(f'step {total_steps}, loss = {train_report["loss"]:.4f}, queue~{batches.qsize()}')
 
         if total_steps % scope['eval_interval'] == 0:
 
             test_report = eval_model(
-                bam_idx=bam_idx, 
+                bam_index,
                 model=model, 
                 device=device, 
                 loss_f=loss_f,
@@ -135,6 +139,8 @@ def train_epoch(
 
             else: patience += 1
 
+    for p in processes: p.join()
+
 def train_step(
         batch, 
         labels, 
@@ -148,7 +154,7 @@ def train_step(
     """
     model.train()
 
-    batch, labels = torch.Tensor(batch).to(device), torch.Tensor(labels).to(device)
+    batch, labels = batch.to(device), labels.to(device)
     predictions = torch.squeeze(model(batch), dim=2)
 
     loss, focal, huber, consec = loss_f(batch, predictions, labels)
@@ -170,12 +176,12 @@ def train_step(
     }
 
 def eval_model(
-          bam_idx: BamIndex, 
-          model: EventDetector, 
-          device: torch.device, 
-          loss_f: CustomLoss, 
-          scope: dict, 
-          valid: bool = False
+        bam_index: BamIndex,
+        model: EventDetector, 
+        device: torch.device, 
+        loss_f: CustomLoss, 
+        scope: dict, 
+        valid: bool = False
     ) -> dict:
     model.eval()
 
@@ -188,7 +194,13 @@ def eval_model(
     logger = logging.getLogger('eval')
     logger.info('starting model evaluation...')
     with torch.no_grad():
-        batches = load_batches(bam_idx, scope['validation_pod5'], scope['val_batch_size'])
+
+        batches = load_batches2(
+            bam_index,
+            scope['validation_pod5'], 
+            scope['val_batch_size'],
+        )
+
         for batch, labels in batches:
             batch, labels = torch.Tensor(batch).to(device), torch.Tensor(labels).to(device)
 

@@ -52,7 +52,6 @@ class BamIndex:
 
             read_id = read.query_name
             if read.is_supplementary or read.is_secondary or read_id in self.bam_idx: continue
-            # TODO do we have only one possible seq per read then ?
 
             self.num_recs += 1
             #self.bam_idx[read_id].append(read_ptr)
@@ -67,7 +66,8 @@ class BamIndex:
             pickle.dump(self.bam_idx, f)
             self.logger.info(f'cached BAM index: bam_cache.pkl')
 
-    def get_alignment(self, read_id: str) -> Generator[AlignedSegment, None, None]:
+    #def get_alignment(self, read_id: str) -> Generator[AlignedSegment, None, None]:
+    def get_alignment(self, read_id: str) -> AlignedSegment:
         if self.bam_file is None: self.open_bam()
 
         #try: read_ptrs = self.bam_idx[read_id]
@@ -90,7 +90,8 @@ class BamIndex:
         if str(aligned_segment.query_name) != read_id:
             raise ValueError(f'read id {read_id} doesnt match read retrieved from index {aligned_segment.query_name}.')
 
-        yield aligned_segment
+        return aligned_segment
+        #yield aligned_segment
 
         #for read_ptr in read_ptrs:
             #self.bam_file.seek(read_ptr)

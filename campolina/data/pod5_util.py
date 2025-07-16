@@ -233,7 +233,6 @@ def comp_tstat_old(cumsum_sig, cumsum_sig_square, s_len, w_len):
     return tstat
 
 def process_chunk(aln, read, adjust_type=None, predict=False, chunk_len=6000, w_len=3):
-    start1 = time.time()
     signal = read.signal
     borders = np.array(aln.get_tag('RR'), dtype=np.uint32) + aln.get_tag('ts')
     borders = borders[np.where(borders < len(signal))]
