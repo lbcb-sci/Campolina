@@ -95,7 +95,7 @@ def train_epoch(
 
     while not batches.empty():
         total_steps += 1
-
+        
         batch, borders = batches.get(timeout=10)
 
         train_report = train_step(
@@ -107,7 +107,8 @@ def train_epoch(
             loss_f=loss_f, 
         )
 
-        logger.info(f'step {total_steps}, loss = {train_report["loss"]:.4f}, queue~{batches.qsize()}')
+        if total_steps % 10 == 0:
+            logger.info(f'step {total_steps}, loss = {train_report["loss"]:.4f}, queue~{batches.qsize()}')
 
         if total_steps % scope['eval_interval'] == 0:
 
