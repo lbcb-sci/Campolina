@@ -16,7 +16,7 @@ class EventDetector(nn.Module):
 
         super().__init__()
         layers = []
-
+        
         layers.append(nn.Conv1d(
             in_channels=in_channels, 
             out_channels=out_channels[0], 

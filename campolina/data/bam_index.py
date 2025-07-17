@@ -77,7 +77,7 @@ class BamIndex:
 
         try: pointer = self.bam_idx[read_id]
         except KeyError:
-            self.logger.warning(f'cannot find read {read_id} in bam index.')
+            #self.logger.warning(f'cannot find read {read_id} in bam index.')
             return None
 
         self.bam_file.seek(pointer)

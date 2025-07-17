@@ -89,12 +89,9 @@ def load_batches_mp(
     manager = mp.Manager()
     dataset = manager.Queue(maxsize=queue_maxsize)
 
-    buckets = [[] for _ in range(nprocesses)]
-
-    i = 0
-    for _ in get_reads(pod5_path): # TODO rewrite
-        buckets[i % nprocesses].append(i)
-        i += 1
+    buckets = [set() for _ in range(nprocesses)]
+    for i, _ in enumerate(get_reads(pod5_path)): # TODO rewrite
+        buckets[i % nprocesses].add(i)
 
     processes = []
     for bucket in buckets:

@@ -3,20 +3,17 @@ import torch
 
 from campolina.model import EventDetector
 from campolina.loss import CustomLoss
-from campolina.data import (
-    BamIndex, 
-    load_batches_seq, 
-    load_batches_mp, 
-    DONE_SIGNAL,
-)
+from campolina.data import BamIndex, load_batches_mp, DONE_SIGNAL
 
-def train(scope: dict):
-    device = scope['devices'][0]
-
+def train(scope: dict) -> None:
+    '''
+    Main function for training. Initializes model, loss and optim, and calls `train_epoch`.
+    '''
     torch.multiprocessing.set_start_method('spawn')
 
-    logger = logging.getLogger('train')
-    logger.setLevel(logging.INFO)
+    device = scope['devices'][0]
+
+    logger = logging.getLogger('train'); logger.setLevel(logging.INFO)
 
     logger.info('initializing model...')
     model = EventDetector(
@@ -43,8 +40,9 @@ def train(scope: dict):
     bam_index = BamIndex(scope['bam_file'])
 
     best_val_loss = None
+    epochs = scope['epochs']
 
-    for epoch in range(1, scope['epochs']+1):
+    for epoch in range(1, epochs+1):
         logger.info(f'[[starting epoch {epoch}...]]')
 
         start = time.time()
@@ -62,25 +60,22 @@ def train(scope: dict):
 
         end = time.time()
         runtime = end - start
-        logger.info(f'[[epoch {epoch} took {runtime / 60} minutes]]')
-
-    #logger.info(f'model saved to {scope["save_model"]}')
-    #wandb.finish()
+        logger.info(f'[[epoch {epoch} took {runtime / 60:.1f} minutes]]')
 
 def train_epoch(
-        bam_index: BamIndex,
         model: EventDetector, 
+        bam_index: BamIndex,
         device: torch.device, 
         optimizer: torch.optim.Optimizer, 
         loss_f: CustomLoss,
         scope: dict, 
-        best_val_loss: float, 
         epoch: int, 
+        best_val_loss: float, 
+        nprocesses: int = 3,
     ):
     """
     Train the model for one epoch.
     """
-
     model.train()
 
     logger = logging.getLogger('train_epoch')
@@ -90,27 +85,29 @@ def train_epoch(
     processes, batches = load_batches_mp(
         bam_index,
         scope['train_pod5'],
+        nprocesses=nprocesses,
         batch_size=scope['batch_size'],
     )
 
     time.sleep(2)
-    total_steps = patience = 0
+    total_steps = 0
 
-    log_interval = 10
+    log_interval = scope['log_interval']
     running_loss = 0.0
 
     done_signals = 0
 
-    while done_signals < len(processes):
+    while done_signals < nprocesses:
 
-        try: batch, borders = batches.get(timeout=10)
+        try: batch, borders = batches.get(timeout=5)
         except:
-            if done_signals == len(processes): break
+            if done_signals == nprocesses: 
+                break
             else: 
-                logger.error(f'timeout but processes are not done (done signals = {done_signals})')
+                logger.warning(f'timeout but processes are not done (done signals = {done_signals} < {nprocesses})')
                 continue
 
-        if batch == DONE_SIGNAL:
+        if isinstance(batch, str) and batch == DONE_SIGNAL:
             done_signals += 1
             continue
 
@@ -128,21 +125,20 @@ def train_epoch(
         running_loss += train_report["loss"]
 
         if total_steps % log_interval == 0:
-            logger.info(f'step {total_steps}, loss = {running_loss / log_interval:.4f}, queue~{batches.qsize()}')
+            logger.info(f'epoch {epoch}, step {total_steps}, loss = {running_loss / log_interval:.4f}, queue~{batches.qsize()}')
             running_loss = 0.0
 
         if total_steps % scope['eval_interval'] == 0:
-
             test_report = eval_model(
                 bam_index,
                 model=model, 
                 device=device, 
                 loss_f=loss_f,
                 scope=scope, 
-                valid=True,
             )
 
-            print_eval(epoch, total_steps, test_report, patience)
+            print_eval(epoch, total_steps, test_report)
+
             val_loss = test_report['loss']
 
             if best_val_loss is None:
@@ -150,18 +146,16 @@ def train_epoch(
                 logger.info('saving first version of the model...')
                 save_model(model, epoch, total_steps, scope)
                 logger.info('model saved')
-                patience = 0
 
             elif val_loss < best_val_loss:
-                logger.info(f'saving new version of model with the lowest val_loss: {val_loss:.4f} < {best_val_loss:.4f}...')
+                logger.info(f'saving new version of model with the lowest validation loss: {val_loss:.4f} < {best_val_loss:.4f}...')
                 save_model(model, epoch, total_steps, scope)
                 logger.info('model saved')
                 best_val_loss = val_loss
-                patience = 0
 
-            else: patience += 1
-
-    for p in processes: p.join()
+    logger.info('joining processes...')
+    [process.join() for process in processes]
+    logger.info(f'epoch {epoch} completed.')
 
 def train_step(
         batch, 
@@ -197,14 +191,15 @@ def train_step(
         'predictions': predictions.detach(),
     }
 
-def eval_model( # TODO make this function faster
+def eval_model(
         bam_index: BamIndex,
         model: EventDetector, 
         device: torch.device, 
         loss_f: CustomLoss, 
         scope: dict, 
-        valid: bool = False
+        nprocesses: int = 3,
     ) -> dict:
+    start = time.time()
     model.eval()
 
     full_predictions = []; full_labels = []
@@ -215,40 +210,53 @@ def eval_model( # TODO make this function faster
 
     logger = logging.getLogger('eval')
     logger.info('starting model evaluation...')
-    with torch.no_grad():
 
-        batches = load_batches_seq( 
-            bam_index,
-            scope['validation_pod5'], 
-            scope['val_batch_size'],
-        )
+    processes, batches = load_batches_mp( 
+        bam_index,
+        pod5_path=scope['validation_pod5'], 
+        batch_size=scope['val_batch_size'],
+    )
 
-        for batch, labels in batches:
-            batch, labels = torch.Tensor(batch).to(device), torch.Tensor(labels).to(device)
+    done_signals = 0
+    while done_signals < nprocesses:
 
+        try: batch, labels = batches.get(timeout=5)
+        except:
+            if done_signals == nprocesses: break
+            else: 
+                logger.warning(f'timeout but processes are not done (done signals = {done_signals} < {nprocesses})')
+                continue
+
+        if isinstance(batch, str) and batch == DONE_SIGNAL:
+            done_signals += 1
+            continue
+
+        batch, labels = batch.to(device), labels.to(device)
+
+        with torch.no_grad():
             predictions = torch.squeeze(model(batch), dim=2)
-
             loss, focal, huber, consec = loss_f(batch, predictions, labels)
-            sumloss += loss.item()
-            sumfocal += focal.item()
-            sumhuber += huber.item()
-            sumconsec += consec.item()
-            steps += 1
 
-            #if not valid: # TODO
-                #predictions = np.where((1 / (1 + np.exp(-predictions.detach().cpu().numpy()))) > 0.5, 1, 0)
-                #full_predictions.extend(list(predictions))
-                #full_labels.extend(labels.cpu().numpy())
+        sumloss += loss.item()
+        sumfocal += focal.item()
+        sumhuber += huber.item()
+        sumconsec += consec.item()
+        steps += 1
 
-        logger.info('model evaluation done.')
+    logger.info('joining processes...')
+    [process.join() for process in processes]
 
-        return {
-            'loss': sumloss / steps,
-            'focal_loss': sumfocal / steps,
-            'huber_loss': sumhuber / steps,
-            'consecutive_loss': sumconsec / steps,
-            'predictions': full_predictions,
-        }
+    end = time.time()
+    runtime = int(end - start)
+    logger.info(f'model evaluation done. ({runtime} seconds)')
+
+    return {
+        'loss': sumloss / steps,
+        'focal_loss': sumfocal / steps,
+        'huber_loss': sumhuber / steps,
+        'consecutive_loss': sumconsec / steps,
+        'predictions': full_predictions,
+    }
 
 def mkname(epoch: int, step: int, scope: dict):
     alpha, beta, gamma = scope['bce_alpha'], scope['huber_beta'], scope['consecutive_gamma']
@@ -259,11 +267,10 @@ def save_model(model: EventDetector, epoch: int, step: int, scope: dict):
     except: pass
     torch.save(model.state_dict(), f'models/{mkname(epoch, step, scope)}')
 
-def print_eval(epoch: int, steps: int, report: dict, patience: int):
+def print_eval(epoch: int, steps: int, report: dict):
     print(f'\nEvaluation @ epoch {epoch} @ step {steps}:')
     print(f'-- Total    Loss {report["loss"]:.4f}')
     print(f'-- Focal    Loss {report["focal_loss"]:.4f}')
     print(f'-- Huber    Loss {report["huber_loss"]:.4f}')
     print(f'-- Consec   Loss {report["consecutive_loss"]:.4f}')
-    print(f'-- Patience {patience}')
     print('', flush=True)
