@@ -25,8 +25,9 @@ def train(scope: dict) -> None:
         dilation=scope['dilation'],
     ).to(device)
 
-    logger.info('torch.compile(model)...')
-    model = torch.compile(model, fullgraph=True, backend='inductor')
+    #logger.info('torch.compile(model)...')
+    #model = torch.compile(model, fullgraph=True, backend='inductor')
+    #model = torch.compile(model, fullgraph=True, backend='cudagraphs')
 
     logger.info('initializing loss function...')
     loss_f = CustomLoss.from_dict(scope)
@@ -132,7 +133,9 @@ def train_epoch(
         running_loss += train_report["loss"]
 
         if total_steps % log_interval == 0:
-            logger.info(f'epoch {epoch}, step {total_steps}, loss = {running_loss / log_interval:.4f}, queue~{batches.qsize()}')
+            running_loss /= log_interval
+            qstate = "full" if batches.full() else batches.qsize()
+            logger.info(f'epoch {epoch}, step {total_steps}, loss = {running_loss:.4f}, queue~{qstate}')
             running_loss = 0.0
 
         if total_steps % scope['eval_interval'] == 0:
@@ -271,11 +274,7 @@ def mkname(epoch: int, step: int, scope: dict):
 
 def save_model(model: EventDetector, epoch: int, step: int, scope: dict):
     path = f'models/{model.name}'
-    # TODO rewrite
-    try: os.mkdir('models')
-    except: pass
-    try: os.mkdir(path)
-    except: pass
+    os.makedirs(path, exist_ok=True)
     torch.save(model.state_dict(), f'{path}/{mkname(epoch, step, scope)}')
 
 def print_eval(epoch: int, steps: int, report: dict):
