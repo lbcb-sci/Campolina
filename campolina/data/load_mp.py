@@ -9,19 +9,19 @@ from .extract import get_reads, process_chunk
 
 DONE_SIGNAL = "DONE"
 
-def to_tensors(batch: list, borders: list):
+def to_tensors(batch: list, borders: list) -> tuple[torch.Tensor, torch.Tensor]:
     return (
         torch.tensor(np.array(batch),   dtype=torch.float32, device='cpu'), 
         torch.tensor(np.array(borders), dtype=torch.float32, device='cpu'),
     )
 
-def load_process(
+def dataloader_process(
         bucket: list,
         pod5_path: str, 
         bam_idx: BamIndex,
         batch_size: int, 
         dataset: mp.Queue,
-    ): 
+    ) -> None: 
 
     logging.basicConfig(level=logging.INFO, format='[%(processName)s] %(message)s')
     logger = logging.getLogger('load_process')
@@ -84,8 +84,11 @@ def load_batches_mp(
         nprocesses: int = 3,
         queue_maxsize: int = 8,
         batch_size: int = 1024,
-    ):
-
+    ) -> tuple[list[mp.Process], mp.Queue]:
+    '''
+    Load data in parallel using multiprocessing.
+    Returns the list of spawned subprocesses as well as the queue of batches that gets filled.
+    '''
     manager = mp.Manager()
     dataset = manager.Queue(maxsize=queue_maxsize)
 
@@ -93,13 +96,14 @@ def load_batches_mp(
     for i, _ in enumerate(get_reads(pod5_path)): # TODO rewrite
         buckets[i % nprocesses].add(i)
 
-    processes = []
-    for bucket in buckets:
-        processes.append(mp.Process(
-            target=load_process, 
+    processes = [
+        mp.Process(
+            target=dataloader_process, 
             args=(bucket, pod5_path, bam_index, batch_size, dataset),
-        ))
+        ) for bucket in buckets
+    ]
 
-    for process in processes: process.start()
+    [process.start() for process in processes]
+
     return processes, dataset
 

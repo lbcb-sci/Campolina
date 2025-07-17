@@ -22,6 +22,7 @@ def train(scope: dict) -> None:
         classification_head=scope['classification_head'], 
         kernel_size_one=scope['kernel_one'], 
         kernel_size_all=scope['kernel_all'],
+        dilation=scope['dilation'],
     ).to(device)
 
     logger.info('torch.compile(model)...')
@@ -42,6 +43,8 @@ def train(scope: dict) -> None:
     best_val_loss = None
     epochs = scope['epochs']
 
+    start_total = time.time()
+
     for epoch in range(1, epochs+1):
         logger.info(f'[[starting epoch {epoch}...]]')
 
@@ -61,6 +64,10 @@ def train(scope: dict) -> None:
         end = time.time()
         runtime = end - start
         logger.info(f'[[epoch {epoch} took {runtime / 60:.1f} minutes]]')
+
+    end_total = time.time()
+    total_runtime = int(end_total - start_total) / 60
+    logger.info(f'training completed ({epochs} epochs) in {total_runtime:.1f} minutes.')
 
 def train_epoch(
         model: EventDetector, 
@@ -263,14 +270,18 @@ def mkname(epoch: int, step: int, scope: dict):
     return f'epoch[{epoch}]_step[{step}]_alpha[{alpha}]_beta[{beta}]_gamma[{gamma}].pth'
 
 def save_model(model: EventDetector, epoch: int, step: int, scope: dict):
+    path = f'models/{model.name}'
+    # TODO rewrite
     try: os.mkdir('models')
     except: pass
-    torch.save(model.state_dict(), f'models/{mkname(epoch, step, scope)}')
+    try: os.mkdir(path)
+    except: pass
+    torch.save(model.state_dict(), f'{path}/{mkname(epoch, step, scope)}')
 
 def print_eval(epoch: int, steps: int, report: dict):
     print(f'\nEvaluation @ epoch {epoch} @ step {steps}:')
-    print(f'-- Total    Loss {report["loss"]:.4f}')
-    print(f'-- Focal    Loss {report["focal_loss"]:.4f}')
-    print(f'-- Huber    Loss {report["huber_loss"]:.4f}')
-    print(f'-- Consec   Loss {report["consecutive_loss"]:.4f}')
+    print(f'-- Total  Loss {report["loss"]:.4f}')
+    print(f'-- Focal  Loss {report["focal_loss"]:.4f}')
+    print(f'-- Huber  Loss {report["huber_loss"]:.4f}')
+    print(f'-- Consec Loss {report["consecutive_loss"]:.4f}')
     print('', flush=True)

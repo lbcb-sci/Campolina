@@ -7,14 +7,19 @@ class EventDetector(nn.Module):
             in_channels: int,
             out_channels: list, 
             classification_head: list, 
-            kernel_size_one: int = 9, 
-            kernel_size_all: int = 3, 
+            kernel_size_one: int = 3, 
+            kernel_size_all: int = 31, 
             stride_one: int = 1, 
             stride: int = 1, 
+            dilation: int = 1,
             dropout_p: float = 0.1,
+            name: str = 'EventDetector',
         ):
 
         super().__init__()
+
+        self.name = name
+
         layers = []
         
         layers.append(nn.Conv1d(
@@ -22,6 +27,7 @@ class EventDetector(nn.Module):
             out_channels=out_channels[0], 
             kernel_size=kernel_size_one,
             stride=stride_one, 
+            dilation=dilation,
             padding='same',
             padding_mode='zeros',
         ))
@@ -36,6 +42,7 @@ class EventDetector(nn.Module):
                 out_channels=out_channels[i], 
                 kernel_size=kernel_size_all,
                 stride=stride, 
+                dilation=dilation,
                 padding='same', 
                 padding_mode='zeros',
             ))
@@ -54,7 +61,6 @@ class EventDetector(nn.Module):
     def forward(self, x):
         for layer in self.module_list: x = layer.forward(x)
         x = torch.swapaxes(x, 1, 2)
-
         for layer in self.classification_head: x = layer(x)
         return x
 

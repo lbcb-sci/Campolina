@@ -5,7 +5,6 @@ import pandas as pd
 import polars as pl
 import torch
 
-
 def convert_to_full_signal_system(chunk_peaks, chunk_starts, read_ids, chunks, mode='raw'):
     signal_peaks = [peaks + start for peaks, start in zip(chunk_peaks, chunk_starts)]
     signals = []
@@ -43,7 +42,6 @@ def convert_to_full_signal_system2(chunk_peaks, chunk_starts, read_ids, chunks, 
 
     return signal_peaks, full_signal_peaks, signals"""
 
-
 def process_raw_output_format2(peaks, chunk_borders, read_ids, chunks):
     # Convert to full signal system
     signal_peaks, _, _ = convert_to_full_signal_system2(peaks, chunk_borders, read_ids, chunks, mode='raw')
@@ -60,16 +58,12 @@ def process_raw_output_format2(peaks, chunk_borders, read_ids, chunks):
     # Create DataFrame directly
     return pd.DataFrame({'read_id': full_rids, 'event_start': full_peaks.numpy()})
 
-
-
 def process_raw_output_format(peaks, chunk_borders, read_ids, chunks):
     signal_peaks, _, _ = convert_to_full_signal_system(peaks, chunk_borders, read_ids, chunks, mode='raw')
     full_rids = np.concatenate([[chunk_rid] * (len(chunk_peaks)) for chunk_rid, chunk_peaks in zip(read_ids, signal_peaks)])
     #full_peaks = np.concatenate(signal_peaks)
     full_peaks = torch.cat(signal_peaks).cpu()
     return pd.DataFrame({'read_id': full_rids, 'event_start': full_peaks})
-
-
 
 def process_analysis_output_format(peaks, chunk_borders, read_ids, chunks):
     cols = {'read_id': pl.Categorical, 'event_start': pl.Int32, 'event_len': pl.Int32, 'event_mean': pl.Float32,
@@ -91,7 +85,6 @@ def process_analysis_output_format(peaks, chunk_borders, read_ids, chunks):
     event_descriptors = [(rid, peak, len(e), np.mean(e), np.std(e)) for rid, peak, e in zip(full_rids, full_peaks, signal_events)]
     frame = pl.LazyFrame(event_descriptors, schema=cols, orient='row')
     return frame
-
 
 def process_output_format(peaks, chunk_borders, read_ids, mode, signal_chunks=None):
     if mode == 'raw':

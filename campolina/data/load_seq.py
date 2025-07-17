@@ -1,5 +1,6 @@
 import logging
 import numpy as np
+from typing import Generator
 
 from .pod5_util import process_chunk, get_reads
 from .bam_index import BamIndex
@@ -8,11 +9,10 @@ def load_batches_seq(
         bam_idx: BamIndex, 
         pod5_path: str, 
         batch_size: int, 
-    ): 
+    ) -> Generator: 
     """
-    Load data for training or validation.
+    Load data sequentially for training or validation (slow, please use `load_batches_mp` if you can).
     """
-
     logger = logging.getLogger('load_batches')
 
     current_batch = []; current_borders = []

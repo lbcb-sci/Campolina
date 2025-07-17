@@ -1,7 +1,7 @@
 import logging
 from dataclasses import dataclass
 from collections import defaultdict
-from typing import Generator
+from typing import Optional
 from pysam import AlignedSegment, AlignmentFile
 import pickle
 
@@ -10,7 +10,6 @@ class BamIndex:
     '''
     A mapping from (read id -> pointer to aligned segment).
     '''
-
     bam_path: str
     logger: logging.Logger = logging.getLogger('bam_index')
 
@@ -66,14 +65,8 @@ class BamIndex:
             pickle.dump(self.bam_idx, f)
             self.logger.info(f'cached BAM index: bam_cache.pkl')
 
-    #def get_alignment(self, read_id: str) -> Generator[AlignedSegment, None, None]:
-    def get_alignment(self, read_id: str) -> AlignedSegment:
+    def get_alignment(self, read_id: str) -> Optional[AlignedSegment]:
         if self.bam_file is None: self.open_bam()
-
-        #try: read_ptrs = self.bam_idx[read_id]
-        #except KeyError:
-            #self.logger.warning(f'cannot find read {read_id} in bam index.')
-            #return None
 
         try: pointer = self.bam_idx[read_id]
         except KeyError:
@@ -91,17 +84,3 @@ class BamIndex:
             raise ValueError(f'read id {read_id} doesnt match read retrieved from index {aligned_segment.query_name}.')
 
         return aligned_segment
-        #yield aligned_segment
-
-        #for read_ptr in read_ptrs:
-            #self.bam_file.seek(read_ptr)
-
-            #try: bam_read = next(self.bam_file)
-            #except OSError:
-                #self.logger.warning(f'cannot extract read {read_id} from BAM index.')
-                #continue
-
-            #assert str(bam_read.query_name) == read_id, \
-                #self.logger.error(f'read id {read_id} doesnt match read retrieved from index {bam_read.query_name}.')
-
-            #yield bam_read

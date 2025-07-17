@@ -10,10 +10,8 @@ import torch
 
 from numpy.lib.stride_tricks import sliding_window_view
 
-
 def calibrate(signal, scale, offset):
     return np.array(scale * (signal + offset), dtype=np.float)
-
 
 def get_reads(p5_path, read_ids=None):
     with p5.Reader(p5_path) as p5_reader:
@@ -21,7 +19,6 @@ def get_reads(p5_path, read_ids=None):
 
 def get_reads_from_pod5(p5, read_ids=None):
     yield from p5.reads(selection=read_ids, preload='samples')
-
 
 def adjust_borders(borders, ref_seq, signal_len, adjust_type):
     problematic_kmers = ['AAA', 'AAG', 'ATT', 'AGA', 'AGG', 'TAC', 'TTT', 'CAA', 'CAG', 'CTT', 'CCC', 'CGA', 'CGG', 'GAG', 'GTT', 'GGA', 'GGG']
@@ -43,7 +40,6 @@ def adjust_borders(borders, ref_seq, signal_len, adjust_type):
         binary_borders[borders] = 1
     return binary_borders
 
-
 def diff1(sig):
     diffs = np.diff(sig, prepend=0)
     return diffs
@@ -63,7 +59,6 @@ def diff1_gpu(sig):
     diffs = padded_sig[:, 1:] - padded_sig[:, :-1]
     return diffs
 
-
 def window_mean_std(sig, wlen):
     sig = sliding_window_view(sig, window_shape=wlen, axis=1)
     w_means = np.mean(sig, axis=2)
@@ -74,7 +69,6 @@ def window_mean_std(sig, wlen):
     w_stds = np.concatenate((zero_array, np.concatenate((w_stds, zero_array), axis=1)), axis=1)
 
     return w_means, w_stds
-
 
 def window_mean_std_gpu(sig, wlen):
     windows = sig.unfold(dimension=1, size=wlen, step=1)
@@ -87,7 +81,6 @@ def window_mean_std_gpu(sig, wlen):
     w_stds = torch.cat((zero_array, w_stds, zero_array), dim=1)
 
     return w_means, w_stds
-
 
 def comp_cumsum_gpu(sig):
     """
@@ -155,8 +148,6 @@ def comp_tstat_gpu(cumsum_sig, cumsum_sig_square, s_len, w_len):
 
     return tstat
 
-
-
 def comp_cumsum(sig):
     batch_size = sig.shape[0]
 
@@ -165,7 +156,6 @@ def comp_cumsum(sig):
     cumsum_sig_square = np.cumsum(np.concatenate((zero_array, sig ** 2), axis=1), axis=1)
 
     return cumsum_sig, cumsum_sig_square
-
 
 def comp_tstat(cumsum_sig, cumsum_sig_square, s_len, w_len):
     eta = np.finfo(float).eps
@@ -198,7 +188,6 @@ def comp_tstat(cumsum_sig, cumsum_sig_square, s_len, w_len):
     tstat[:, w_len:s_len - w_len + 1] = tstat_res
 
     return tstat
-
 
 def comp_tstat_old(cumsum_sig, cumsum_sig_square, s_len, w_len):
     eta = np.finfo(float).eps
