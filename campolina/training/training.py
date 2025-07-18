@@ -57,6 +57,8 @@ def train(scope: dict) -> None:
     best_val_loss = None
     epochs = scope['epochs']
 
+    #eval_model(bam_index, model, device, loss_f, scope)
+
     start_total = time.time()
 
     for epoch in range(1, epochs+1):
@@ -243,6 +245,8 @@ def eval_model(
         nprocesses=scope['nprocesses'],
     )
 
+    ones = 0
+    true_positives = 0
     acc = 0.0
     i = 0
 
@@ -269,11 +273,16 @@ def eval_model(
 
             probabilities = predictions.sigmoid()
             preds = probabilities > 0.5
+
+            tp = ((preds == 1) & (labels == 1)).sum().item() / (labels == 1).sum().item()
+            true_positives += tp
+
             #sumacc = 0
             #for i, p in enumerate(preds):
                 #sumacc += (p == labels[i]).int().mean()
             #sumacc /= labels.shape[0]
             #print(sumacc)
+            ones += preds.sum()
             acc += (preds == labels).float().mean()
             i += 1
             #print((preds == labels).int().mean())
@@ -284,7 +293,9 @@ def eval_model(
         sumconsec += consec.item()
         steps += 1
 
-    logger.info(f'Accuracy: {acc / float(i):.2f}')
+    logger.info(f'\nAccuracy: {acc / float(i):.2f}')
+    logger.info(f'Ones: {float(ones) / float(i):.2f}\n')
+    logger.info(f'TP: {float(true_positives) / float(i):.2f}\n')
 
     logger.info('joining processes...')
     [process.join() for process in processes]

@@ -14,27 +14,27 @@ class UNet(nn.Module):
 
         self.first = Convolution(
             in_ch=5,
-            out_ch=8,
+            out_ch=16,
             kernel=kernels[0],
             dropout=dropout,
         )
 
         self.down1 = Down(
-            in_ch=8, 
-            out_ch=16, 
+            in_ch=16, 
+            out_ch=32, 
             kernel=kernels[1],
             dropout=dropout,
         )
 
         self.down2 = Down(
-            in_ch=16, 
-            out_ch=32, 
+            in_ch=32, 
+            out_ch=64, 
             kernel=kernels[2],
             dropout=dropout,
         )
 
         self.down3 = Down(
-            in_ch=32, 
+            in_ch=64, 
             out_ch=64, 
             kernel=kernels[3],
             dropout=dropout,
@@ -42,20 +42,20 @@ class UNet(nn.Module):
 
         self.down4 = Down(
             in_ch=64, 
-            out_ch=128, 
+            out_ch=64, 
             kernel=kernels[4],
             dropout=dropout,
         )
 
         self.middle = Convolution(
-            in_ch=128, 
-            out_ch=128, 
+            in_ch=64, 
+            out_ch=64, 
             kernel=kernels[5],
             dropout=dropout,
         )
 
         self.up4 = Up(
-            in_ch=128, 
+            in_ch=64, 
             out_ch=64, 
             kernel=kernels[6],
             dropout=dropout,
@@ -63,20 +63,20 @@ class UNet(nn.Module):
 
         self.up1 = Up(
             in_ch=64 * 2, 
-            out_ch=32, 
+            out_ch=64, 
             kernel=kernels[7],
             dropout=dropout,
         )
 
         self.up2 = Up(
-            in_ch=32*2, 
-            out_ch=16, 
+            in_ch=64 * 2, 
+            out_ch=32, 
             kernel=kernels[8],
             dropout=dropout,
         )
 
         self.up3 = Up(
-            in_ch=16*2, 
+            in_ch=32 * 2, 
             out_ch=8, 
             kernel=kernels[9],
             dropout=dropout,
@@ -85,10 +85,10 @@ class UNet(nn.Module):
         #self.last = nn.Linear(in_features=, out_features=1)
 
         self.last = nn.Conv1d(
-            in_channels=8*2, 
+            in_channels=16 + 8, 
             out_channels=1, 
-            kernel_size=kernels[10],
-            padding=1,
+            kernel_size=1,#kernels[10],
+            padding=0,
         )
 
     def forward(self, x: Tensor) -> Tensor:
@@ -110,7 +110,7 @@ class UNet(nn.Module):
         # d3 : 128 x 375
 
         mid = self.middle(d4)
-        # mid: 128 x 375
+        ## mid: 128 x 375
 
         u4 = self.up4(mid)# + d3
         # u4 :  64 x 375
