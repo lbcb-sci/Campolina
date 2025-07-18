@@ -2,8 +2,12 @@ import time, os, logging
 import torch
 
 from campolina.model import EventDetector
+from campolina.model.unet import UNet
 from campolina.loss import CustomLoss
 from campolina.data import BamIndex, load_batches_mp, DONE_SIGNAL
+
+def count_params(model) -> int:
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 def train(scope: dict) -> None:
     '''
@@ -16,14 +20,23 @@ def train(scope: dict) -> None:
     logger = logging.getLogger('train'); logger.setLevel(logging.INFO)
 
     logger.info('initializing model...')
-    model = EventDetector(
-        in_channels=scope['in_channels'], 
-        out_channels=scope['out_channels'], 
-        classification_head=scope['classification_head'], 
-        kernel_size_one=scope['kernel_one'], 
-        kernel_size_all=scope['kernel_all'],
-        dilation=scope['dilation'],
+    #model = EventDetector(
+        #in_channels=scope['in_channels'], 
+        #out_channels=scope['out_channels'], 
+        #classification_head=scope['classification_head'], 
+        #kernel_size_one=scope['kernel_one'], 
+        #kernel_size_all=scope['kernel_all'],
+        #dilation=scope['dilation'],
+    #).to(device)
+
+    kernels = [3, 5, 7, 11, 17]
+    kernels = kernels + [31] + kernels.copy()[::-1]
+    model = UNet(
+        kernels=kernels,
+        dropout=0.2,
     ).to(device)
+
+    logger.info(f'Model number of parameters: {count_params(model)}')
 
     #logger.info('torch.compile(model)...')
     #model = torch.compile(model, fullgraph=True, backend='inductor')
@@ -47,7 +60,7 @@ def train(scope: dict) -> None:
     start_total = time.time()
 
     for epoch in range(1, epochs+1):
-        logger.info(f'[[starting epoch {epoch}...]]')
+        logger.info(f'|| STARTING EPOCH {epoch} ||')
 
         start = time.time()
 
@@ -93,8 +106,8 @@ def train_epoch(
     processes, batches = load_batches_mp(
         bam_index,
         scope['train_pod5'],
-        nprocesses=nprocesses,
         batch_size=scope['batch_size'],
+        nprocesses=scope['nprocesses'],
     )
 
     time.sleep(2)
@@ -181,7 +194,9 @@ def train_step(
     model.train()
 
     batch, labels = batch.to(device), labels.to(device)
-    predictions = torch.squeeze(model(batch), dim=2)
+    #predictions = torch.squeeze(model(batch), dim=2)
+    #predictions = model(batch)
+    predictions = torch.squeeze(model(batch), dim=1)
 
     loss, focal, huber, consec = loss_f(batch, predictions, labels)
 
@@ -225,7 +240,11 @@ def eval_model(
         bam_index,
         pod5_path=scope['validation_pod5'], 
         batch_size=scope['val_batch_size'],
+        nprocesses=scope['nprocesses'],
     )
+
+    acc = 0.0
+    i = 0
 
     done_signals = 0
     while done_signals < nprocesses:
@@ -244,14 +263,28 @@ def eval_model(
         batch, labels = batch.to(device), labels.to(device)
 
         with torch.no_grad():
-            predictions = torch.squeeze(model(batch), dim=2)
+            #predictions = torch.squeeze(model(batch), dim=2)
+            predictions = torch.squeeze(model(batch), dim=1)
             loss, focal, huber, consec = loss_f(batch, predictions, labels)
+
+            probabilities = predictions.sigmoid()
+            preds = probabilities > 0.5
+            #sumacc = 0
+            #for i, p in enumerate(preds):
+                #sumacc += (p == labels[i]).int().mean()
+            #sumacc /= labels.shape[0]
+            #print(sumacc)
+            acc += (preds == labels).float().mean()
+            i += 1
+            #print((preds == labels).int().mean())
 
         sumloss += loss.item()
         sumfocal += focal.item()
         sumhuber += huber.item()
         sumconsec += consec.item()
         steps += 1
+
+    logger.info(f'Accuracy: {acc / float(i):.2f}')
 
     logger.info('joining processes...')
     [process.join() for process in processes]
