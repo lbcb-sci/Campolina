@@ -1,7 +1,6 @@
 import torch
 from torch import nn, Tensor
 
-
 class UNet(nn.Module):
     def __init__(
             self,
@@ -20,25 +19,32 @@ class UNet(nn.Module):
         super().__init__()
         self.name= 'UNet'
 
-        self.down = []
+        self.downlayers = []
         for i, _ in enumerate(channels_down[:-1]):
-            self.down.append(Down(
+            self.downlayers.append(Down(
                 in_ch=channels_down[i],
                 out_ch=channels_down[i+1],
                 kernel=kernels[i],
                 dropout=dropout,
             ))
 
-        self.up = []
+        self.uplayers = []
         for i, _ in enumerate(channels_up[:-1]):
-            self.up.append(Up(
+            self.uplayers.append(Up(
                 in_ch=channels_up[i] + channels_down[-i-1], # residual
                 out_ch=channels_up[i+1],
                 kernel=kernels[len(channels_down) + i],
                 dropout=dropout,
             ))
 
-        self.down = nn.ModuleList(self.down)
+        self.first = Convolution(
+            in_ch=5,
+            out_ch=channels_down[0],
+            kernel=3,
+            dropout=0.0,
+        )
+
+        self.downlayers = nn.ModuleList(self.downlayers)
 
         #self.middle = Convolution(
             #in_ch=channels_down[-1],
@@ -47,38 +53,38 @@ class UNet(nn.Module):
             #dropout=dropout,
         #)
 
-        self.up = nn.ModuleList(self.up)
+        self.uplayers = nn.ModuleList(self.uplayers)
 
         self.last = nn.Conv1d(
-            in_channels=10,
+            in_channels=channels_down[0]+channels_up[-1],
             out_channels=1,
             kernel_size=3,
             padding=1,
         )
         
     def forward(self, x: Tensor) -> Tensor:
-        inp = x.clone()
+        x = self.first(x)
+        first = x.clone()
 
         residuals = []
 
         # down sample
-        for down in self.down:
+        for down in self.downlayers:
             x = down(x)
             residuals.append(x.clone())
 
         #x = self.middle(x)
 
         # up sample
-        for i, up in enumerate(self.up):
+        for i, up in enumerate(self.uplayers):
             residual = residuals[-i-1]
             x = up(torch.concat([x, residual], dim=1))
         
         # get logits
-        cat = torch.concat([x, inp], dim=1)
-        return self.last(cat)
+        return self.last(torch.concat([x, first], dim=1))
 
 class Down(nn.Module):
-    '''Halves the input by applying convolution + max pooling.'''
+    '''Halves the input by applying pooling + convolution.'''
     def __init__(
             self, 
             in_ch: int, 
@@ -91,25 +97,27 @@ class Down(nn.Module):
         super().__init__()
 
         self.conv = nn.Sequential(
+            nn.MaxPool1d(pooling),
+
             Convolution(
                 in_ch=in_ch, 
                 out_ch=out_ch, 
                 kernel=kernel, 
                 dropout=dropout,
             ),
+
             Convolution(
                 in_ch=out_ch, 
                 out_ch=out_ch, 
                 kernel=kernel, 
                 dropout=dropout,
             ),
-            nn.MaxPool1d(pooling)
         )
 
     def forward(self, x: Tensor) -> Tensor: return self.conv(x)
 
 class Up(nn.Module):
-    '''Upsample the input using transposed conv + conv.'''
+    '''Upsample the input using transposed_conv + conv.'''
     def __init__(
             self, 
             in_ch: int, 
@@ -156,10 +164,8 @@ class Convolution(nn.Module):
             kernel: int,
             dropout: float = 0.1,
         ):
-
-        super().__init__()
-
         assert kernel % 2 == 1
+        super().__init__()
 
         self.conv_norm = nn.Sequential(
             nn.Conv1d(
@@ -198,8 +204,7 @@ def make_medium(dropout: float = 0.1) -> UNet:
     return unet
 
 def make_big(dropout: float = 0.1) -> UNet:
-    # ~11M params
-    channels = [5, 128, 256, 512, 1024]
+    channels = [64, 128, 256, 512, 512]
     unet = UNet(
         channels_down=channels,
         channels_up=list(reversed(channels)),

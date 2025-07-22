@@ -1,6 +1,5 @@
 import time, os, logging
 import torch
-import torch.multiprocessing.queue
 
 from campolina.model import EventDetector
 from campolina.model.unet import UNet, make_big, make_medium, make_small
@@ -33,7 +32,7 @@ def train(scope: dict) -> None:
 
     logger.info(f'Model number of parameters: {count_params(model)}')
 
-    logger.info('torch.compile(model)...')
+    #logger.info('torch.compile(model)...')
     model = torch.compile(model, fullgraph=True, backend='inductor')
     #model = torch.compile(model, fullgraph=True, backend='cudagraphs')
 
@@ -45,6 +44,7 @@ def train(scope: dict) -> None:
         model.parameters(), 
         lr=scope['lr'], 
         eps=scope['adam_epsilon'],
+        weight_decay=0.01,
     )
 
     bam_index = BamIndex(scope['bam_file'])
@@ -194,12 +194,10 @@ def train_step(
     model.train()
 
     batch, labels = batch.to(device), labels.to(device)
-    #predictions = torch.squeeze(model(batch), dim=2)
-    #predictions = model(batch)
-    if model.name == 'EventDetector':
-        predictions = torch.squeeze(model(batch), dim=2)
-    else:
-        predictions = torch.squeeze(model(batch), dim=1)
+    predictions = torch.squeeze(
+        model(batch), 
+        dim=2 if model.name == 'EventDetector' else 1,
+    )
 
     loss, focal, huber, consec = loss_f(batch, predictions, labels)
 
@@ -210,6 +208,8 @@ def train_step(
     optimizer.zero_grad()
     loss.backward()
     optimizer.step()
+
+    #torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
 
     return {
         'loss': loss.item(),
