@@ -20,7 +20,6 @@ if __name__ == '__main__':
 
     if 'gpu' in scope and len(scope['gpu']) > 0:
         os.environ["CUDA_VISIBLE_DEVICES"] = ",".join((str(x) for x in scope['gpu']))
-        #scope["devices"] = [torch.device("cuda", x) for x in range(len(scope['gpu']))]
         scope["devices"] = [torch.device("cuda", x) for x in range(len(scope['gpu']))]
     else:
         os.environ["CUDA_VISIBLE_DEVICES"] = ""

@@ -1,9 +1,12 @@
-import time, os, logging
+import time, logging
 import torch
 
 from campolina.model import EventDetector
 from campolina.loss import CustomLoss
 from campolina.data import BamIndex, load_batches_mp, DONE_SIGNAL
+
+from .eval import eval_model
+from .utils import save_model, print_eval
 
 def train(scope: dict) -> None:
     '''
@@ -148,17 +151,21 @@ def train_epoch(
 
             val_loss = test_report['loss']
 
-            if best_val_loss is None:
-                best_val_loss = val_loss
-                logger.info('saving first version of the model...')
-                save_model(model, epoch, total_steps, scope)
-                logger.info('model saved')
+            logger.info('saving model...')
+            save_model(model, epoch, total_steps, val_loss)
+            logger.info('model saved')
 
-            elif val_loss < best_val_loss:
-                logger.info(f'saving new version of model with the lowest validation loss: {val_loss:.4f} < {best_val_loss:.4f}...')
-                save_model(model, epoch, total_steps, scope)
-                logger.info('model saved')
-                best_val_loss = val_loss
+            #if best_val_loss is None:
+                #best_val_loss = val_loss
+                #logger.info('saving first version of the model...')
+                #save_model(model, epoch, total_steps, scope)
+                #logger.info('model saved')
+
+            #elif val_loss < best_val_loss:
+                #logger.info(f'saving new version of model with the lowest validation loss: {val_loss:.4f} < {best_val_loss:.4f}...')
+                #save_model(model, epoch, total_steps, scope)
+                #logger.info('model saved')
+                #best_val_loss = val_loss
 
     logger.info('joining processes...')
     for process in processes:
@@ -202,90 +209,3 @@ def train_step(
         'consecutive_loss': consec.item(),
         'predictions': predictions.detach(),
     }
-
-def eval_model(
-        bam_index: BamIndex,
-        model: EventDetector, 
-        device: torch.device, 
-        loss_f: CustomLoss, 
-        scope: dict, 
-        nprocesses: int = 5,
-    ) -> dict:
-    start = time.time()
-    model.eval()
-
-    full_predictions = []; full_labels = []
-
-    # init losses
-    sumloss = sumfocal = sumhuber = sumconsec = 0.0
-    steps = 0
-
-    logger = logging.getLogger('eval')
-    logger.info('starting model evaluation...')
-
-    processes, batches = load_batches_mp( 
-        bam_index,
-        pod5_path=scope['validation_pod5'], 
-        batch_size=scope['val_batch_size'],
-    )
-
-    done_signals = 0
-    while done_signals < nprocesses:
-
-        try: batch, labels = batches.get(timeout=5)
-        except:
-            logger.warning(f'timeout (done signals = {done_signals}, nprocesses = {nprocesses})')
-            continue
-
-        if isinstance(batch, str) and batch == DONE_SIGNAL:
-            done_signals += 1
-            logger.info(f'received done signal (done signals = {done_signals})')
-            continue
-
-        batch, labels = batch.to(device), labels.to(device)
-
-        with torch.no_grad():
-            predictions = torch.squeeze(model(batch), dim=2)
-            loss, focal, huber, consec = loss_f(batch, predictions, labels)
-
-        sumloss += loss.item()
-        sumfocal += focal.item()
-        sumhuber += huber.item()
-        sumconsec += consec.item()
-        steps += 1
-
-    logger.info('joining processes...')
-    for process in processes:
-        try: process.join(timeout=10)
-        except:
-            logger.error(f'process {process.pid} timeout during join, terminating')
-            process.terminate()
-
-    end = time.time()
-    runtime = int(end - start)
-    logger.info(f'model evaluation done. ({runtime} seconds)')
-
-    return {
-        'loss': sumloss / steps,
-        'focal_loss': sumfocal / steps,
-        'huber_loss': sumhuber / steps,
-        'consecutive_loss': sumconsec / steps,
-        'predictions': full_predictions,
-    }
-
-def mkname(epoch: int, step: int, scope: dict):
-    alpha, beta, gamma = scope['bce_alpha'], scope['huber_beta'], scope['consecutive_gamma']
-    return f'epoch[{epoch}]_step[{step}]_alpha[{alpha}]_beta[{beta}]_gamma[{gamma}].pth'
-
-def save_model(model: EventDetector, epoch: int, step: int, scope: dict):
-    path = f'models/{model.name}'
-    os.makedirs(path, exist_ok=True)
-    torch.save(model.state_dict(), f'{path}/{mkname(epoch, step, scope)}')
-
-def print_eval(epoch: int, steps: int, report: dict):
-    print(f'\nEvaluation @ epoch {epoch} @ step {steps}:')
-    print(f'-- Total  Loss {report["loss"]:.4f}')
-    print(f'-- Focal  Loss {report["focal_loss"]:.4f}')
-    print(f'-- Huber  Loss {report["huber_loss"]:.4f}')
-    print(f'-- Consec Loss {report["consecutive_loss"]:.4f}')
-    print('', flush=True)
