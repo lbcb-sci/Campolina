@@ -56,7 +56,7 @@ class CustomLoss(_Loss):
 
         weights = Tensor([self.alpha, self.beta, self.gamma]).to(predictions.device)
         losses  = torch.stack((focal, huber, consec))
-        return (weights @ losses), focal, huber, consec #, softsegment
+        return (weights @ losses), focal*self.alpha, huber*self.beta, consec*self.gamma #, softsegment
         #return self.alpha*bce_loss + self.beta*huber_loss + self.gamma*consecutive_loss + self.delta*soft_segment_loss, bce_loss, huber_loss, consecutive_loss, soft_segment_loss
 
 class FocalLoss(_Loss):
@@ -76,10 +76,10 @@ class FocalLoss(_Loss):
         self.bce = BCEWithLogitsLoss(reduction='none')
 
     def forward(self, predictions: Tensor, targets: Tensor) -> Tensor:
-        probabilities = torch.sigmoid(predictions)
         ce_loss = self.bce(predictions, targets)
+        probabilities = torch.sigmoid(predictions)
         p_t = probabilities * targets + (1 - probabilities) * (1 - targets)
-        loss = ce_loss * ((1 - p_t) ** self.gamma)
+        loss = ce_loss * ((1 - p_t)**self.gamma)
 
         if self.alpha >= 0:
             alpha_t = self.alpha * targets + (1 - self.alpha) * (1 - targets)

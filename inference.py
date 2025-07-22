@@ -26,7 +26,7 @@ from campolina.data.pod5_util import *
 from campolina.data.utils import *
 from campolina.data.output_utils import *
 from campolina.data.loader_utils import *
-from campolina.model.model import *
+from campolina.model.base import *
 
 mp.set_start_method('spawn', force=True)
 

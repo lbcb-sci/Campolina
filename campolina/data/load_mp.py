@@ -76,7 +76,7 @@ def dataloader_process(
         dataset.put(to_tensors(current_batch, current_borders))
 
     logger.info('sending done signal')
-    dataset.put((DONE_SIGNAL, DONE_SIGNAL))
+    dataset.put((DONE_SIGNAL, None))
 
 def load_batches_mp(
         bam_index: BamIndex,

@@ -1,2 +1,2 @@
-from .model import EventDetector
-from .unet import UNet
+from .base import EventDetector
+from .unet import UNet, make_big, make_medium, make_small
