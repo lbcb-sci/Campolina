@@ -25,8 +25,8 @@ def train(scope: dict) -> None:
         dilation=scope['dilation'],
     ).to(device)
 
-    #logger.info('torch.compile(model)...')
-    #model = torch.compile(model, fullgraph=True, backend='inductor')
+    logger.info('torch.compile(model)...')
+    model = torch.compile(model, fullgraph=True, backend='inductor')
     #model = torch.compile(model, fullgraph=True, backend='cudagraphs')
 
     logger.info('initializing loss function...')
@@ -47,7 +47,7 @@ def train(scope: dict) -> None:
     start_total = time.time()
 
     for epoch in range(1, epochs+1):
-        logger.info(f'[[starting epoch {epoch}...]]')
+        logger.info(f'|| STARTING EPOCH {epoch} ||')
 
         start = time.time()
 
@@ -104,19 +104,16 @@ def train_epoch(
     running_loss = 0.0
 
     done_signals = 0
-
     while done_signals < nprocesses:
 
         try: batch, borders = batches.get(timeout=5)
         except:
-            if done_signals == nprocesses: 
-                break
-            else: 
-                logger.warning(f'timeout but processes are not done (done signals = {done_signals} < {nprocesses})')
-                continue
+            logger.warning(f'timeout (done signals = {done_signals}, nprocesses = {nprocesses})')
+            continue
 
         if isinstance(batch, str) and batch == DONE_SIGNAL:
             done_signals += 1
+            logger.info(f'received done signal (done signals = {done_signals})')
             continue
 
         total_steps += 1
@@ -164,7 +161,12 @@ def train_epoch(
                 best_val_loss = val_loss
 
     logger.info('joining processes...')
-    [process.join() for process in processes]
+    for process in processes:
+        try: process.join(timeout=10)
+        except:
+            logger.error(f'process {process.pid} timeout during join, terminating')
+            process.terminate()
+
     logger.info(f'epoch {epoch} completed.')
 
 def train_step(
@@ -207,7 +209,7 @@ def eval_model(
         device: torch.device, 
         loss_f: CustomLoss, 
         scope: dict, 
-        nprocesses: int = 3,
+        nprocesses: int = 5,
     ) -> dict:
     start = time.time()
     model.eval()
@@ -232,13 +234,12 @@ def eval_model(
 
         try: batch, labels = batches.get(timeout=5)
         except:
-            if done_signals == nprocesses: break
-            else: 
-                logger.warning(f'timeout but processes are not done (done signals = {done_signals} < {nprocesses})')
-                continue
+            logger.warning(f'timeout (done signals = {done_signals}, nprocesses = {nprocesses})')
+            continue
 
         if isinstance(batch, str) and batch == DONE_SIGNAL:
             done_signals += 1
+            logger.info(f'received done signal (done signals = {done_signals})')
             continue
 
         batch, labels = batch.to(device), labels.to(device)
@@ -254,7 +255,11 @@ def eval_model(
         steps += 1
 
     logger.info('joining processes...')
-    [process.join() for process in processes]
+    for process in processes:
+        try: process.join(timeout=10)
+        except:
+            logger.error(f'process {process.pid} timeout during join, terminating')
+            process.terminate()
 
     end = time.time()
     runtime = int(end - start)
