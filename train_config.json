@@ -19,7 +19,7 @@
     "classification_head": [128, 1],
     "kernel_one": 3,
     "kernel_all": 31,
-    "dilation": 1,
+    "dilations": [1, 1, 1, 1, 1],
 
     "bce_alpha": 1.0,
     "huber_beta": 0.0,

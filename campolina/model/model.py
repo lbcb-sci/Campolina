@@ -11,7 +11,7 @@ class EventDetector(nn.Module):
             kernel_size_all: int = 31, 
             stride_one: int = 1, 
             stride: int = 1, 
-            dilation: int = 1,
+            dilations: list[int] = None,
             dropout_p: float = 0.1,
             name: str = 'EventDetector',
         ):
@@ -20,6 +20,11 @@ class EventDetector(nn.Module):
 
         self.name = name
 
+        if dilations is None:
+            dilations = [1] * len(out_channels)
+
+        assert len(dilations) == len(out_channels)
+
         layers = []
         
         layers.append(nn.Conv1d(
@@ -27,10 +32,11 @@ class EventDetector(nn.Module):
             out_channels=out_channels[0], 
             kernel_size=kernel_size_one,
             stride=stride_one, 
-            dilation=dilation,
+            dilation=dilations[0],
             padding='same',
             padding_mode='zeros',
         ))
+        print(dilations[0])
 
         layers.append(nn.GELU())
         layers.append(nn.BatchNorm1d(out_channels[0]))
@@ -42,10 +48,11 @@ class EventDetector(nn.Module):
                 out_channels=out_channels[i], 
                 kernel_size=kernel_size_all,
                 stride=stride, 
-                dilation=dilation,
+                dilation=dilations[i],
                 padding='same', 
                 padding_mode='zeros',
             ))
+            print(dilations[i])
 
             layers.append(nn.GELU())
             layers.append(nn.BatchNorm1d(out_channels[i]))

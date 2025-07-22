@@ -25,7 +25,7 @@ def train(scope: dict) -> None:
         classification_head=scope['classification_head'], 
         kernel_size_one=scope['kernel_one'], 
         kernel_size_all=scope['kernel_all'],
-        dilation=scope['dilation'],
+        dilations=scope['dilations'],
     ).to(device)
 
     logger.info('torch.compile(model)...')
@@ -201,6 +201,8 @@ def train_step(
     optimizer.zero_grad()
     loss.backward()
     optimizer.step()
+
+    # TODO gradient clipping ?
 
     return {
         'loss': loss.item(),
