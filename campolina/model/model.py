@@ -17,16 +17,12 @@ class EventDetector(nn.Module):
         ):
 
         super().__init__()
-
         self.name = name
 
-        if dilations is None:
-            dilations = [1] * len(out_channels)
-
+        if dilations is None: dilations = [1] * len(out_channels)
         assert len(dilations) == len(out_channels)
 
         layers = []
-        
         layers.append(nn.Conv1d(
             in_channels=in_channels, 
             out_channels=out_channels[0], 
@@ -36,7 +32,6 @@ class EventDetector(nn.Module):
             padding='same',
             padding_mode='zeros',
         ))
-        print(dilations[0])
 
         layers.append(nn.GELU())
         layers.append(nn.BatchNorm1d(out_channels[0]))
@@ -52,7 +47,6 @@ class EventDetector(nn.Module):
                 padding='same', 
                 padding_mode='zeros',
             ))
-            print(dilations[i])
 
             layers.append(nn.GELU())
             layers.append(nn.BatchNorm1d(out_channels[i]))

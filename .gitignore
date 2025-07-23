@@ -4,3 +4,4 @@ wandb/**
 torch_compile_debug/**
 models/**
 *.pkl
+runs/**

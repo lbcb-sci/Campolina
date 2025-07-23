@@ -1,6 +1,7 @@
 import time, logging
 import torch
 from torch import nn
+import numpy as np
 
 from campolina.data import BamIndex, load_batches_mp, DONE_SIGNAL
 from campolina.loss import CustomLoss
@@ -11,16 +12,16 @@ def eval_model(
         device: torch.device, 
         loss_f: CustomLoss, 
         scope: dict, 
-        nprocesses: int = 5,
+        nprocesses: int = 3,
     ) -> dict:
     start = time.time()
     model.eval()
 
-    full_predictions = []; full_labels = []
+    full_probabilities = []; full_labels = []
 
     # init losses
     sumloss = sumfocal = sumhuber = sumconsec = 0.0
-    steps = 0
+    sumtp = steps = 0
 
     logger = logging.getLogger('eval')
     logger.info('starting model evaluation...')
@@ -50,10 +51,16 @@ def eval_model(
             predictions = torch.squeeze(model(batch), dim=2)
             loss, focal, huber, consec = loss_f(batch, predictions, labels)
 
+        probabilities = predictions.sigmoid()
+        sumtp += (((probabilities > 0.5).int() == 1) & (labels.int() == 1)).sum()
         sumloss += loss.item()
         sumfocal += focal.item()
         sumhuber += huber.item()
         sumconsec += consec.item()
+
+        full_probabilities.extend(list(probabilities.cpu().numpy()))
+        full_labels.extend(list(labels.cpu().numpy()))
+
         steps += 1
 
     logger.info('joining processes...')
@@ -72,5 +79,7 @@ def eval_model(
         'focal_loss': sumfocal / steps,
         'huber_loss': sumhuber / steps,
         'consecutive_loss': sumconsec / steps,
-        'predictions': full_predictions,
+        'probabilities': np.array(full_probabilities),
+        'labels': np.array(full_labels),
+        'true_positives': sumtp / steps,
     }

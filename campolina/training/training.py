@@ -1,5 +1,6 @@
 import time, logging
 import torch
+from torch.utils.tensorboard.writer import SummaryWriter
 
 from campolina.model import EventDetector
 from campolina.loss import CustomLoss
@@ -27,10 +28,10 @@ def train(scope: dict) -> None:
         kernel_size_all=scope['kernel_all'],
         dilations=scope['dilations'],
     ).to(device)
+    print(model)
 
     logger.info('torch.compile(model)...')
     model = torch.compile(model, fullgraph=True, backend='inductor')
-    #model = torch.compile(model, fullgraph=True, backend='cudagraphs')
 
     logger.info('initializing loss function...')
     loss_f = CustomLoss.from_dict(scope)
@@ -106,6 +107,8 @@ def train_epoch(
     log_interval = scope['log_interval']
     running_loss = 0.0
 
+    writer = SummaryWriter(log_dir='runs/dilations=1-1-3-5-7')
+
     done_signals = 0
     while done_signals < nprocesses:
 
@@ -130,6 +133,25 @@ def train_epoch(
             loss_f=loss_f, 
         )
 
+        writer.add_scalar(
+            tag='training loss', 
+            scalar_value=train_report["loss"],
+            global_step=epoch*total_steps,
+        )
+
+        writer.add_scalar(
+            tag='true positives (train)', 
+            scalar_value=train_report["true_positives"],
+            global_step=epoch*total_steps,
+        )
+
+        writer.add_pr_curve(
+            'precision / recall (train)',
+            labels=train_report["labels"],
+            predictions=train_report["probabilities"],
+            global_step=epoch*total_steps,
+        )
+
         running_loss += train_report["loss"]
 
         if total_steps % log_interval == 0:
@@ -145,11 +167,30 @@ def train_epoch(
                 device=device, 
                 loss_f=loss_f,
                 scope=scope, 
+                nprocesses=nprocesses,
             )
 
             print_eval(epoch, total_steps, test_report)
 
             val_loss = test_report['loss']
+            writer.add_scalar(
+                'validation loss', 
+                test_report["loss"],
+                epoch*total_steps,
+            )
+
+            writer.add_scalar(
+                tag='true positives (val)', 
+                scalar_value=test_report["true_positives"],
+                global_step=epoch*total_steps,
+            )
+
+            writer.add_pr_curve(
+                'precision / recall (val)',
+                labels=torch.tensor(test_report["labels"]),
+                predictions=torch.tensor(test_report["probabilities"]),
+                global_step=epoch*total_steps,
+            )
 
             logger.info('saving model...')
             save_model(model, epoch, total_steps, val_loss)
@@ -175,6 +216,7 @@ def train_epoch(
             process.terminate()
 
     logger.info(f'epoch {epoch} completed.')
+    writer.close()
 
 def train_step(
         batch, 
@@ -204,10 +246,15 @@ def train_step(
 
     # TODO gradient clipping ?
 
+    probabilities = predictions.sigmoid()
+    true_positives = (((probabilities > 0.5).int() == 1) & (labels.int() == 1)).sum()
+
     return {
         'loss': loss.item(),
         'focal_loss': focal.item(),
         'huber_loss': huber.item(),
         'consecutive_loss': consec.item(),
-        'predictions': predictions.detach(),
+        'probabilities': probabilities.detach(),
+        'labels': labels.detach(),
+        'true_positives': true_positives,
     }
