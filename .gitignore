@@ -7,3 +7,4 @@ models/**
 .tensorboard-info/**
 tmp*
 torchinductor*
+runs/**
