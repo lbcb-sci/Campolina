@@ -4,63 +4,52 @@ from torch import nn, Tensor
 class UNet(nn.Module):
     def __init__(
             self,
-            channels_down: list[int],
-            channels_up: list[int],
-            kernels: list[int] = None,
+            chan_down: list[int],
+            chan_up: list[int],
+            kernel: int = 3,
             dropout: float = 0.1,
         ):
-
-        assert len(channels_down) == len(channels_up)
-
-        if kernels is None: kernels = [3] * (len(channels_down * 2))
-
-        assert len(channels_down)*2 == len(kernels)
-
+        assert len(chan_down) == len(chan_up)
         super().__init__()
         self.name= 'UNet'
 
-        self.downlayers = []
-        for i, _ in enumerate(channels_down[:-1]):
-            self.downlayers.append(Down(
-                in_ch=channels_down[i],
-                out_ch=channels_down[i+1],
-                kernel=kernels[i],
-                dropout=dropout,
-            ))
-
-        self.uplayers = []
-        for i, _ in enumerate(channels_up[:-1]):
-            self.uplayers.append(Up(
-                in_ch=channels_up[i] + channels_down[-i-1], # residual
-                out_ch=channels_up[i+1],
-                kernel=kernels[len(channels_down) + i],
-                dropout=dropout,
-            ))
-
-        self.first = Convolution(
+        self.first = ConvBlock(
             in_ch=5,
-            out_ch=channels_down[0],
-            kernel=3,
+            out_ch=chan_down[0],
+            kernel=kernel,
             dropout=0.0,
         )
 
-        self.downlayers = nn.ModuleList(self.downlayers)
+        self.downlayers = nn.ModuleList([
+            Down(
+                in_ch=chan_down[i], 
+                out_ch=chan_down[i+1],
+                kernel=kernel,
+                dropout=dropout,
+            ) for i, _ in enumerate(chan_down[:-1])
+        ])
 
-        #self.middle = Convolution(
-            #in_ch=channels_down[-1],
-            #out_ch=channels_down[-1],
-            #kernel=3,
-            #dropout=dropout,
-        #)
-
+        self.uplayers = []
+        for i, _ in enumerate(chan_up[:-1]):
+            self.uplayers.append(Up(
+                in_ch=chan_up[i] + chan_down[-i-1], # residual
+                out_ch=chan_up[i+1],
+                kernel=kernel,
+                dropout=dropout,
+            ))
         self.uplayers = nn.ModuleList(self.uplayers)
 
         self.last = nn.Conv1d(
-            in_channels=channels_down[0]+channels_up[-1],
+            in_channels=chan_down[0]+chan_up[-1], # first + output of upsample
             out_channels=1,
             kernel_size=3,
             padding=1,
         )
+
+    @staticmethod
+    def make_default(dropout: float):
+        chan = [5, 64, 128, 256, 512]
+        return UNet(chan_down=chan, chan_up=list(reversed(chan)), dropout=dropout)
         
     def forward(self, x: Tensor) -> Tensor:
         x = self.first(x)
@@ -72,8 +61,6 @@ class UNet(nn.Module):
         for down in self.downlayers:
             x = down(x)
             residuals.append(x.clone())
-
-        #x = self.middle(x)
 
         # up sample
         for i, up in enumerate(self.uplayers):
@@ -98,20 +85,18 @@ class Down(nn.Module):
 
         self.conv = nn.Sequential(
             nn.MaxPool1d(pooling),
-
-            Convolution(
+            ConvBlock(
                 in_ch=in_ch, 
                 out_ch=out_ch, 
                 kernel=kernel, 
                 dropout=dropout,
             ),
-
-            Convolution(
-                in_ch=out_ch, 
-                out_ch=out_ch, 
-                kernel=kernel, 
-                dropout=dropout,
-            ),
+            #Convolution(
+                #in_ch=out_ch, 
+                #out_ch=out_ch, 
+                #kernel=kernel, 
+                #dropout=dropout,
+            #),
         )
 
     def forward(self, x: Tensor) -> Tensor: return self.conv(x)
@@ -139,24 +124,24 @@ class Up(nn.Module):
         )
 
         self.conv = nn.Sequential(
-            Convolution(
+            ConvBlock(
                 in_ch=out_ch, 
                 out_ch=out_ch, 
                 kernel=kernel, 
                 dropout=dropout,
             ),
-            Convolution(
-                in_ch=out_ch, 
-                out_ch=out_ch, 
-                kernel=kernel, 
-                dropout=dropout,
-            ),
+            #Convolution(
+                #in_ch=out_ch, 
+                #out_ch=out_ch, 
+                #kernel=kernel, 
+                #dropout=dropout,
+            #),
         )
 
     def forward(self, x: Tensor) -> Tensor: return self.conv(self.transposed_conv(x))
 
-class Convolution(nn.Module):
-    '''Conv + BatchNorm + ReLU'''
+class ConvBlock(nn.Module):
+    '''Conv + Norm + ReLU + Dropout'''
     def __init__(
             self, 
             in_ch: int, 
@@ -174,41 +159,19 @@ class Convolution(nn.Module):
                 kernel_size=kernel,
                 padding=(kernel - 1) // 2,
             ),
-            nn.BatchNorm1d(num_features=out_ch),
+            nn.GroupNorm(
+                num_groups=min(out_ch, 32),
+                num_channels=out_ch,
+            ),
+            #nn.BatchNorm1d(
+                #num_features=out_ch,
+                #track_running_stats=True,
+                #momentum=0.8,
+            #),
             nn.ReLU(),
-            nn.Dropout(dropout)
+            nn.Dropout(dropout),
         )
 
     def forward(self, x: Tensor) -> Tensor: return self.conv_norm(x)
 
-def make_small(dropout: float = 0.1) -> UNet:
-    # ~2.7M params
-    channels = [5, 32, 64, 128, 256]
-    unet = UNet(
-        channels_down=channels,
-        channels_up=list(reversed(channels)),
-        dropout=dropout,
-    )
-    unet.name = 'unet_small'
-    return unet
-
-def make_medium(dropout: float = 0.1) -> UNet:
-    # ~7M Params
-    channels = [5, 64, 128, 256, 512]
-    unet = UNet(
-        channels_down=channels,
-        channels_up=list(reversed(channels)),
-        dropout=dropout,
-    )
-    unet.name = 'unet_medium'
-    return unet
-
-def make_big(dropout: float = 0.1) -> UNet:
-    channels = [64, 128, 256, 512, 512]
-    unet = UNet(
-        channels_down=channels,
-        channels_up=list(reversed(channels)),
-        dropout=dropout,
-    )
-    unet.name = 'unet_big'
-    return unet
+    

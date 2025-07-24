@@ -4,3 +4,6 @@ wandb/**
 torch_compile_debug/**
 models/**
 *.pkl
+.tensorboard-info/**
+tmp*
+torchinductor*

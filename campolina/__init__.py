@@ -1,2 +1,2 @@
 from .training import train 
-from .model import EventDetector 
+from .model import EventDetector, UNet 

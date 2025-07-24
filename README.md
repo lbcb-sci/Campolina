@@ -60,7 +60,7 @@ bash extract_ground_truth.sh
 ```bash
 python align_events.py
 ```
-3. Quantify the quality of the segmentation with detailed usage explanation available throug ```--help```.
+3. Quantify the quality of the segmentation with detailed usage explanation available through ```--help```.
 ```bash
 pyton assess_segmentation_quality.py
 ```

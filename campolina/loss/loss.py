@@ -56,7 +56,7 @@ class CustomLoss(_Loss):
 
         weights = Tensor([self.alpha, self.beta, self.gamma]).to(predictions.device)
         losses  = torch.stack((focal, huber, consec))
-        return (weights @ losses), focal*self.alpha, huber*self.beta, consec*self.gamma #, softsegment
+        return (weights @ losses), focal, huber, consec #, softsegment
         #return self.alpha*bce_loss + self.beta*huber_loss + self.gamma*consecutive_loss + self.delta*soft_segment_loss, bce_loss, huber_loss, consecutive_loss, soft_segment_loss
 
 class FocalLoss(_Loss):

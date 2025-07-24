@@ -1,15 +1,15 @@
 import time, os, logging
 import torch
+from torch.utils.tensorboard.writer import SummaryWriter
 
-from campolina.model import EventDetector
-from campolina.model.unet import UNet, make_big, make_medium, make_small
+from campolina.model import EventDetector, UNet
 from campolina.loss import CustomLoss
 from campolina.data import BamIndex, load_batches_mp, DONE_SIGNAL
 
 def count_params(model) -> int:
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-def train(scope: dict) -> None:
+def train(scope: dict, run_name: str = 'unet') -> None:
     '''
     Main function for training. Initializes model, loss and optim, and calls `train_epoch`.
     '''
@@ -17,6 +17,7 @@ def train(scope: dict) -> None:
     device = scope['devices'][0]
     logger = logging.getLogger('train'); logger.setLevel(logging.INFO)
 
+    #logger.info('initializing model...')
     #model = EventDetector(
         #in_channels=scope['in_channels'], 
         #out_channels=scope['out_channels'], 
@@ -25,16 +26,16 @@ def train(scope: dict) -> None:
         #kernel_size_all=scope['kernel_all'],
         #dilation=scope['dilation'],
     #).to(device)
+    #print(model)
 
     logger.info('initializing model...')
-    model = make_small(dropout=0.2).to(device)
+    model = UNet.make_default(dropout=0.2).to(device)
     print(model)
 
-    logger.info(f'Model number of parameters: {count_params(model)}')
+    logger.info(f'number of parameters: {count_params(model)}')
 
-    #logger.info('torch.compile(model)...')
+    logger.info('torch.compile(model)...')
     model = torch.compile(model, fullgraph=True, backend='inductor')
-    #model = torch.compile(model, fullgraph=True, backend='cudagraphs')
 
     logger.info('initializing loss function...')
     loss_f = CustomLoss.from_dict(scope)
@@ -53,21 +54,26 @@ def train(scope: dict) -> None:
     epochs = scope['epochs']
 
     start_total = time.time()
+    tb = SummaryWriter(f'runs/{run_name}')
+
+    total_steps = 0
 
     for epoch in range(1, epochs+1):
         logger.info(f'|| STARTING EPOCH {epoch} ||')
 
         start = time.time()
 
-        train_epoch(
+        total_steps = train_epoch(
             bam_index=bam_index,
             model=model, 
             device=device, 
             optimizer=optimizer, 
             loss_f=loss_f, 
             scope=scope, 
+            total_steps=total_steps,
             best_val_loss=best_val_loss, 
             epoch=epoch, 
+            tb=tb,
         ) # TODO myb do not evaluate on padded part of the signal
 
         end = time.time()
@@ -77,6 +83,7 @@ def train(scope: dict) -> None:
     end_total = time.time()
     total_runtime = int(end_total - start_total) / 60
     logger.info(f'training completed ({epochs} epochs) in {total_runtime:.1f} minutes.')
+    tb.close()
 
 def train_epoch(
         model: EventDetector, 
@@ -86,11 +93,13 @@ def train_epoch(
         loss_f: CustomLoss,
         scope: dict, 
         epoch: int, 
+        total_steps: int,
         best_val_loss: float, 
         nprocesses: int = 3,
+        tb = None,
     ):
     """
-    Train the model for one epoch.
+    Train the model for a single epoch.
     """
     model.train()
 
@@ -106,7 +115,6 @@ def train_epoch(
     )
 
     time.sleep(2)
-    total_steps = 0
 
     log_interval = scope['log_interval']
     running_loss = 0.0
@@ -134,7 +142,13 @@ def train_epoch(
             loss_f=loss_f, 
         )
 
-        running_loss += train_report["loss"]
+        train_loss = train_report["loss"]
+        running_loss += train_loss
+        tb.add_scalar(
+            tag='training loss',
+            scalar_value=train_loss,
+            global_step=total_steps,
+        )
 
         if total_steps % log_interval == 0:
             running_loss /= log_interval
@@ -154,6 +168,11 @@ def train_epoch(
             print_eval(epoch, total_steps, test_report)
 
             val_loss = test_report['loss']
+            tb.add_scalar(
+                tag='validation loss',
+                scalar_value=val_loss,
+                global_step=total_steps,
+            )
 
             logger.info('saving  model...')
             save_model(model, epoch, total_steps, val_loss)
@@ -179,6 +198,8 @@ def train_epoch(
             p.terminate()
 
     logger.info(f'epoch {epoch} completed.')
+    tb.close()
+    return total_steps
 
 def train_step(
         batch: torch.Tensor, 
@@ -189,7 +210,7 @@ def train_step(
         optimizer: torch.optim.Optimizer, 
     ) -> dict:
     """
-    Train model on a single batch.
+    Train model on a single batch, that is forward + backward pass, and returns loss details.
     """
     model.train()
 
@@ -226,8 +247,8 @@ def eval_model(
         loss_f: CustomLoss, 
         scope: dict, 
     ) -> dict:
-    start = time.time()
     model.eval()
+    start = time.time()
 
     full_predictions = []; full_labels = []
 
@@ -244,6 +265,8 @@ def eval_model(
         bam_index,
         pod5_path=scope['validation_pod5'], 
         batch_size=scope['val_batch_size'],
+        #pod5_path=scope['train_pod5'], 
+        #batch_size=scope['batch_size'],
         nprocesses=nprocesses,
     )
 
@@ -277,8 +300,7 @@ def eval_model(
             probabilities = predictions.sigmoid()
             preds = probabilities > 0.5
 
-            tp = ((preds == 1) & (labels == 1)).sum().item() / (labels == 1).sum().item()
-            true_positives += tp
+            true_positives += ((preds == 1) & (labels == 1)).sum().item()
 
             #sumacc = 0
             #for i, p in enumerate(preds):
@@ -297,8 +319,8 @@ def eval_model(
         steps += 1
 
     logger.info(f'\naccuracy: {acc / float(i):.2f}')
-    logger.info(f'ones: {ones:.2f}')
-    logger.info(f'tp: {true_positives:.2f}\n')
+    logger.info(f'ones: {ones}')
+    logger.info(f'tp: {true_positives}\n')
 
     logger.info('joining processes...')
     #[process.join() for process in processes]
