@@ -76,10 +76,10 @@ class FocalLoss(_Loss):
         self.bce = BCEWithLogitsLoss(reduction='none')
 
     def forward(self, predictions: Tensor, targets: Tensor) -> Tensor:
-        probabilities = torch.sigmoid(predictions)
         ce_loss = self.bce(predictions, targets)
+        probabilities = torch.sigmoid(predictions)
         p_t = probabilities * targets + (1 - probabilities) * (1 - targets)
-        loss = ce_loss * ((1 - p_t) ** self.gamma)
+        loss = ce_loss * ((1 - p_t)**self.gamma)
 
         if self.alpha >= 0:
             alpha_t = self.alpha * targets + (1 - self.alpha) * (1 - targets)

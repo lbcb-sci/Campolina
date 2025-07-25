@@ -14,6 +14,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--config_file', default='train_config.json')
+    parser.add_argument('--run_name', default='unet')
 
     args = parser.parse_args()
     with open(args.config_file, 'r') as inf: scope = json.load(inf)
@@ -28,4 +29,7 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
     logging.info(f'using {scope["devices"]}')
 
-    train(scope) # main function
+    train(
+        scope=scope,
+        run_name=args.run_name,
+    ) # main function

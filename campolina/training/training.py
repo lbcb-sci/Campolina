@@ -2,33 +2,40 @@ import time, logging
 import torch
 from torch.utils.tensorboard.writer import SummaryWriter
 
-from campolina.model import EventDetector
+from campolina.model import EventDetector, UNet
 from campolina.loss import CustomLoss
 from campolina.data import BamIndex, load_batches_mp, DONE_SIGNAL
 
 from .eval import eval_model
 from .utils import save_model, print_eval
 
-def train(scope: dict) -> None:
+def count_params(model) -> int:
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+def train(scope: dict, run_name: str = 'unet') -> None:
     '''
     Main function for training. Initializes model, loss and optim, and calls `train_epoch`.
     '''
     torch.multiprocessing.set_start_method('spawn')
-
     device = scope['devices'][0]
-
     logger = logging.getLogger('train'); logger.setLevel(logging.INFO)
 
+    #logger.info('initializing model...')
+    #model = EventDetector(
+        #in_channels=scope['in_channels'], 
+        #out_channels=scope['out_channels'], 
+        #classification_head=scope['classification_head'], 
+        #kernel_size_one=scope['kernel_one'], 
+        #kernel_size_all=scope['kernel_all'],
+        #dilation=scope['dilation'],
+    #).to(device)
+    #print(model)
+
     logger.info('initializing model...')
-    model = EventDetector(
-        in_channels=scope['in_channels'], 
-        out_channels=scope['out_channels'], 
-        classification_head=scope['classification_head'], 
-        kernel_size_one=scope['kernel_one'], 
-        kernel_size_all=scope['kernel_all'],
-        dilations=scope['dilations'],
-    ).to(device)
+    model = UNet.make_default(dropout=0.2).to(device)
     print(model)
+
+    logger.info(f'number of parameters: {count_params(model)}')
 
     logger.info('torch.compile(model)...')
     model = torch.compile(model, fullgraph=True, backend='inductor')
@@ -41,6 +48,7 @@ def train(scope: dict) -> None:
         model.parameters(), 
         lr=scope['lr'], 
         eps=scope['adam_epsilon'],
+        weight_decay=0.01,
     )
 
     bam_index = BamIndex(scope['bam_file'])
@@ -49,21 +57,26 @@ def train(scope: dict) -> None:
     epochs = scope['epochs']
 
     start_total = time.time()
+    tb = SummaryWriter(f'runs/{run_name}')
+
+    total_steps = 0
 
     for epoch in range(1, epochs+1):
         logger.info(f'|| STARTING EPOCH {epoch} ||')
 
         start = time.time()
 
-        train_epoch(
+        total_steps = train_epoch(
             bam_index=bam_index,
             model=model, 
             device=device, 
             optimizer=optimizer, 
             loss_f=loss_f, 
             scope=scope, 
+            total_steps=total_steps,
             best_val_loss=best_val_loss, 
             epoch=epoch, 
+            tb=tb,
         ) # TODO myb do not evaluate on padded part of the signal
 
         end = time.time()
@@ -73,6 +86,7 @@ def train(scope: dict) -> None:
     end_total = time.time()
     total_runtime = int(end_total - start_total) / 60
     logger.info(f'training completed ({epochs} epochs) in {total_runtime:.1f} minutes.')
+    tb.close()
 
 def train_epoch(
         model: EventDetector, 
@@ -82,11 +96,13 @@ def train_epoch(
         loss_f: CustomLoss,
         scope: dict, 
         epoch: int, 
+        total_steps: int,
         best_val_loss: float, 
         nprocesses: int = 3,
+        tb = None,
     ):
     """
-    Train the model for one epoch.
+    Train the model for a single epoch.
     """
     model.train()
 
@@ -97,12 +113,11 @@ def train_epoch(
     processes, batches = load_batches_mp(
         bam_index,
         scope['train_pod5'],
-        nprocesses=nprocesses,
         batch_size=scope['batch_size'],
+        nprocesses=scope['nprocesses'],
     )
 
     time.sleep(2)
-    total_steps = 0
 
     log_interval = scope['log_interval']
     running_loss = 0.0
@@ -219,20 +234,23 @@ def train_epoch(
     writer.close()
 
 def train_step(
-        batch, 
-        labels, 
+        batch: torch.Tensor, 
+        labels: torch.Tensor, 
         model: EventDetector, 
         device: torch.device, 
         loss_f: CustomLoss, 
         optimizer: torch.optim.Optimizer, 
     ) -> dict:
     """
-    Train model on a single batch.
+    Train model on a single batch, that is forward + backward pass, and returns loss details.
     """
     model.train()
 
     batch, labels = batch.to(device), labels.to(device)
-    predictions = torch.squeeze(model(batch), dim=2)
+    predictions = torch.squeeze(
+        model(batch), 
+        dim=2 if model.name == 'EventDetector' else 1,
+    )
 
     loss, focal, huber, consec = loss_f(batch, predictions, labels)
 
@@ -244,17 +262,14 @@ def train_step(
     loss.backward()
     optimizer.step()
 
-    # TODO gradient clipping ?
-
-    probabilities = predictions.sigmoid()
-    true_positives = (((probabilities > 0.5).int() == 1) & (labels.int() == 1)).sum()
+    #torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
 
     return {
         'loss': loss.item(),
         'focal_loss': focal.item(),
         'huber_loss': huber.item(),
         'consecutive_loss': consec.item(),
-        'probabilities': probabilities.detach(),
+        #'probabilities': probabilities.detach(),
         'labels': labels.detach(),
-        'true_positives': true_positives,
+        #'true_positives': true_positives,
     }

@@ -34,7 +34,11 @@ class EventDetector(nn.Module):
         ))
 
         layers.append(nn.GELU())
-        layers.append(nn.BatchNorm1d(out_channels[0]))
+        #layers.append(nn.BatchNorm1d(out_channels[0]))
+        layers.append(nn.GroupNorm(
+            num_groups=min(out_channels[0], 32),
+            num_channels=out_channels[0],
+        ))
         layers.append(nn.Dropout(p=dropout_p))
 
         for i in range(1, len(out_channels)):
@@ -49,7 +53,11 @@ class EventDetector(nn.Module):
             ))
 
             layers.append(nn.GELU())
-            layers.append(nn.BatchNorm1d(out_channels[i]))
+            #layers.append(nn.BatchNorm1d(out_channels[i]))
+            layers.append(nn.GroupNorm(
+                num_groups=min(out_channels[i], 32),
+                num_channels=out_channels[i],
+            ))
             layers.append(nn.Dropout(p=dropout_p))
 
         self.module_list = nn.ModuleList(layers)
