@@ -321,15 +321,14 @@ def main(args):
     tqdm.write('Merging csv files')
     merge_csvs(writers_path, args.tgt_dir, args.filename_description, args.delete_src)
 
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--remora_bam', default='/home/bakics/scratch/Campolina_paper/segmenteval/R10_zymo_segmenteval_subset/refined_R10_zymo_segmenteval_subset.bam')
-    parser.add_argument('--predictions', default='/home/bakics/scratch/Campolina_paper/segmenteval/R10_zymo_segmenteval_subset/R10_Zymo_segmenteval_14112024_Focal_alpha0_8_gamma1_alpha5000_beta0_05_eta10_5channel_final2048_400bps_events_new.csv')
-    parser.add_argument('--pod5_file', default='/home/bakics/scratch/Campolina_paper/segmenteval/R10_zymo_segmenteval_subset/R10_zymo_segmenteval_subset.pod5')
+    parser.add_argument('--remora_bam', default='/mnt/sod2-project/csb4/wgs/metagenomics_data/projects/segmentation/segmentation_data/R10_Zymo_subsample/barcode24_zymo_wo_EC_1k_per_species_min_len_1k/barcode24_zymo_subsampled_wo_EC_min_len_1k.bam')
+    parser.add_argument('--predictions', default='/home/stumaxime/scratch/campolina/out.csv')
+    parser.add_argument('--pod5_file', default='/mnt/sod2-project/csb4/wgs/metagenomics_data/projects/segmentation/segmentation_data/R10_Zymo_subsample/barcode24_zymo_wo_EC_1k_per_species_min_len_1k/barcode24_zymo_subsampled_wo_EC_min_len_1k.pod5')
     #parser.add_argument('--read_ids', default=['af83f8de-ce0e-4ed1-9e75-605304a5f74d'], nargs='+')
     parser.add_argument('--read_ids', default=None, nargs='+')
-    parser.add_argument('--kmer_model', default='/home/bakics/remora_analysis/9mer_levels_v1_400bps.txt')
+    parser.add_argument('--kmer_model', default='/home/stumaxime/scratch/campolina/campolina/groundtruth/9mers_levels_R10_4_1_400bps.txt')
     parser.add_argument('--tgt_dir', default='./')
     parser.add_argument('--filename_description', default='005665c5-7b3f-44c8-989e-d0e23af14b23')
     parser.add_argument('--workers', type=int, default=1)

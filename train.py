@@ -5,11 +5,10 @@ import warnings
 import logging
 import torch
 
-from campolina import train 
+import campolina 
 
 if __name__ == '__main__':
     warnings.filterwarnings('ignore')
-
     torch.manual_seed(12345)
 
     parser = argparse.ArgumentParser()
@@ -29,7 +28,4 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
     logging.info(f'using {scope["devices"]}')
 
-    train(
-        scope=scope,
-        run_name=args.run_name,
-    ) # main function
+    campolina.train(scope=scope, run_name=args.run_name) 

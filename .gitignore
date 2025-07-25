@@ -8,3 +8,4 @@ models/**
 tmp*
 torchinductor*
 runs/**
+*.parquet

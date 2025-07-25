@@ -48,7 +48,7 @@ class UNet(nn.Module):
         )
 
     @staticmethod
-    def make_default(dropout: float):
+    def make_default(dropout: float = 0.0):
         chan = [5, 64, 128, 256, 512]
         return UNet(chan_down=chan, chan_up=list(reversed(chan)), dropout=dropout)
         

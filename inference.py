@@ -1,17 +1,10 @@
 import argparse
 import os
 import tqdm
-
 from pathlib import Path
-from collections import Counter, defaultdict
 import multiprocessing as mp
-
 import torch
 import numpy as np
-from polars.polars import first
-#import torch.profiler
-#import torch_tensorrt
-from torch.utils.data import DataLoader
 
 os.environ['POLARS_MAX_THREADS'] = '32'
 
@@ -26,24 +19,16 @@ from campolina.data.pod5_util import *
 from campolina.data.utils import *
 from campolina.data.output_utils import *
 from campolina.data.loader_utils import *
-from campolina.model.base import *
+from campolina.model.base import EventDetector
+from campolina.model.unet import UNet
 
 mp.set_start_method('spawn', force=True)
 
 import time
-import duckdb
-
-from functools import partial
-
-#import torch._dynamo
-#torch._dynamo.config.suppress_errors = True
-#torch._dynamo.disable()
 
 log=True
 
-def find_positive_indices(row):
-    return (row > 0).nonzero(as_tuple=True)[0]
-
+def find_positive_indices(row): return (row > 0).nonzero(as_tuple=True)[0]
 
 def writer_worker(queue, output_path, schema, mode):
     writer = pq.ParquetWriter(output_path, schema)
@@ -59,40 +44,33 @@ def writer_worker(queue, output_path, schema, mode):
         writer.write_table(table)
     writer.close()
 
-
 def predict_detect(model, batch, device):
     torch.cuda.synchronize()
-    prediction_start = time.time()
-    #with torch.autocast(device_type="cuda"), torch.no_grad():
-    #logits = model(torch.Tensor(batch).to(device, non_blocking=True)).squeeze().cpu()
     logits = model(torch.Tensor(batch).to(device)).squeeze().detach().cpu()
-    #logits = model(batch).squeeze()
     torch.cuda.synchronize()
     return logits
 
-
-
 def predict(model_path, devices, pod5_rids_pairs, bs, tgt_file, workers, mode):
     print(f'Devices: {devices}')
-    state_dict = torch.load(model_path, map_location=devices[0])
-    model = EventDetector(in_channels=5, out_channels=[32, 64, 64, 128, 128],
-                          classification_head=[128, 1], kernel_size_one=3, kernel_size_all=31).to(devices[0])
-    #model = TCNEventDetector(in_channels = 5, channels=[32, 128, 256, 1024, 2048], kernel_size=3, classification_head=[2048, 256, 32, 1], dropout=0.1, causal=False, use_norm='batch_norm', activation='gelu').to(devices[0])
+    device = devices[0]
+    state_dict = torch.load(model_path, map_location=device)
+    print(state_dict)
 
-    model.load_state_dict(state_dict, strict=True)
-    #model.half()
-    #model = torch.compile(model, backend='torch_tensorrt', dynamic=False, fullgraph=True, options={"truncate_long_and_double": True, "enabled_precisions": {torch.float,torch.half}})
+    #model = EventDetector(in_channels=5, out_channels=[32, 64, 64, 128, 128],
+                          #classification_head=[128, 1], kernel_size_one=3, kernel_size_all=31).to(devices[0])
+
+    model = UNet.make_default().to(device)
+    model.load_state_dict(state_dict, strict=False)#, strict=True)
     model.eval()
-
-    #output_dir = f"{tgt_file}_batches"
-    #os.makedirs(output_dir, exist_ok=True)
 
     # Generate schema
     schema = pa.schema([
         ('read_id', pa.string()),
         ('event_start', pa.int32())
     ])
+
     output_path = f"{tgt_file}.parquet"
+
     # Init worker processes
     queue = mp.Queue()
     process = mp.Process(target=writer_worker, args=(queue, output_path, schema, mode))
@@ -103,7 +81,6 @@ def predict(model_path, devices, pod5_rids_pairs, bs, tgt_file, workers, mode):
     for pod5_path, rids in pod5_rids_pairs:
         reader = p5.Reader(pod5_path)
         for chunks, chunk_borders, read_ids, signal_chunks in tqdm.tqdm(get_raw_batch3(reader, rids, bs)):
-            #torch_chunks = torch.Tensor(np.array(chunks)).half().to(devices[0], non_blocking=True)
             torch_chunks = torch.Tensor(np.array(chunks)).to(devices[0])
             cumsum_sig_gpu, cumsum_sig_square_gpu = comp_cumsum_gpu(torch_chunks)
             tstat1_gpu = comp_tstat_gpu(cumsum_sig_gpu, cumsum_sig_square_gpu, 6000, 3)
@@ -111,7 +88,7 @@ def predict(model_path, devices, pod5_rids_pairs, bs, tgt_file, workers, mode):
             gpu_w_means, gpu_w_stds = window_mean_std_gpu(torch_chunks, wlen=3)
             signal = torch.stack([torch_chunks, diff_gpu, gpu_w_means, gpu_w_stds, tstat1_gpu], dim=1)
 
-            logits = predict_detect(model, signal, devices[0])
+            logits = predict_detect(model, signal, device)
             queue.put((logits, chunk_borders, read_ids, signal_chunks))
             batch_id += 1
 
@@ -141,15 +118,6 @@ def predict(model_path, devices, pod5_rids_pairs, bs, tgt_file, workers, mode):
         #else:
             #pq.write_table(table, output_path, append=True)"""
 
-    #duckdb.sql(f"""
-    #    COPY ( SELECT * FROM '{output_dir}/worker_*.parquet') TO '{tgt_file}.parquet' (FORMAT PARQUET)
-    #        """)
-
-    #merge_end = time.time()
-    #print(f'Merging took {merge_end - merge_start}')
-
-
-
 def main(args):
     full_start = time.time()
     if args.gpu is not None and len(args.gpu) > 0:
@@ -159,7 +127,6 @@ def main(args):
         os.environ["CUDA_VISIBLE_DEVICES"] = ""
         devices = [torch.device("cpu")]
 
-    #devices = ['cuda:5']
     pod5_readid_pairs = get_pod5_readid_pairs(args.pod5_dir)
     predict(args.model_path, devices, pod5_readid_pairs, args.bs,
                        f'{args.tgt_dir}/{args.abbrev}_events', 1, args.mode)
@@ -167,19 +134,21 @@ def main(args):
     if log:
         print(f'Full execution took {full_end - full_start}')
 
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
+
     parser.add_argument('--pod5_dir', type=Path,
                         default='/mnt/sod2-project/csb4/wgs/metagenomics_data/projects/segmentation/segmentation_data/R10_Zymo_subsample/barcode24_zymo_wo_EC_1k_per_species_min_len_1k/')
+
     parser.add_argument('--model_path', type=Path,
-                        default='08052025_Focal_focalalpha0_8_focalgamma_1_alpha5000_beta0_05_gamma_0_1_epoch300_eta10_hubermargin10_5channel_400bps_model.pth')
-    parser.add_argument('--tgt_dir', type=Path,
-                        default='./')
+                        default='/home/stumaxime/scratch/campolina/models/unet_1.5M/epoch[1]_step[200]_loss[311.1089].pth')
+
+    parser.add_argument('--tgt_dir', type=Path, default='./')
+
     parser.add_argument('--workers', type=int, default=4)
-    parser.add_argument('--bs', type=int, default=4096)
-    parser.add_argument('--gpu', default=[5])
-    parser.add_argument('--abbrev', type=str, default='test_multithread')
+    parser.add_argument('--bs', type=int, default=1024)
+    parser.add_argument('--gpu', default=[1])
+    parser.add_argument('--abbrev', type=str, default='output')
     parser.add_argument('--delete_src', action='store_true', default=False)
     parser.add_argument('--mode', choices=['raw', 'analysis'], default='raw')
     parser.add_argument('--log_time', action='store_true')
