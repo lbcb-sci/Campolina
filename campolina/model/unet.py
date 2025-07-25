@@ -2,6 +2,8 @@ import torch
 from torch import nn, Tensor
 
 class UNet(nn.Module):
+    name = 'UNet'
+
     def __init__(
             self,
             chan_down: list[int],
@@ -11,7 +13,6 @@ class UNet(nn.Module):
         ):
         assert len(chan_down) == len(chan_up)
         super().__init__()
-        self.name= 'UNet'
 
         self.first = ConvBlock(
             in_ch=5,

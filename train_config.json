@@ -4,22 +4,14 @@
     "bam_file": "/mnt/sod2-project/csb4/ARG/mouse_gut/data/MUX12399-T1/20230918_0819_X1_FAW69630_a539d406/dorado_basecalls/refined_barcode24_EC_new.bam",
     "save_model": "22052025_Focal_focalalpha0_8_focalgamma_1_alpha5000_beta0_gamma_0_epoch300_eta10_hubermargin10_5channel_400bps_model.pth",
 
-    "nprocesses": 5,
+    "nprocesses": 3,
 
-    "batch_size": 1024,
-<<<<<<< HEAD
-    "val_batch_size": 4096,
-    "gpu": [1],
-    "epochs": 10,
-    "eval_interval": 100,
-    "log_interval": 25,
-=======
-    "val_batch_size": 1024,
+    "batch_size": 1536,
+    "val_batch_size": 1536,
     "gpu": [1],
     "epochs": 2,
     "eval_interval": 200,
-    "log_interval": 50,
->>>>>>> unet
+    "log_interval": 25,
 
     "lr": 1e-3,
     "adam_epsilon": 1e-09,

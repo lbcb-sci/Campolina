@@ -2,6 +2,8 @@ import torch
 from torch import nn
 
 class EventDetector(nn.Module):
+    name = 'Base'
+
     def __init__(
             self, 
             in_channels: int,
@@ -13,11 +15,9 @@ class EventDetector(nn.Module):
             stride: int = 1, 
             dilations: list[int] = None,
             dropout_p: float = 0.1,
-            name: str = 'EventDetector',
         ):
 
         super().__init__()
-        self.name = name
 
         if dilations is None: dilations = [1] * len(out_channels)
         assert len(dilations) == len(out_channels)

@@ -7,12 +7,9 @@ from campolina.loss import CustomLoss
 from campolina.data import BamIndex, load_batches_mp, DONE_SIGNAL
 
 from .eval import eval_model
-from .utils import save_model, print_eval
+from .utils import save_model, print_eval, count_params
 
-def count_params(model) -> int:
-    return sum(p.numel() for p in model.parameters() if p.requires_grad)
-
-def train(scope: dict, run_name: str = 'unet') -> None:
+def train(scope: dict, run_name: str = 'model') -> None:
     '''
     Main function for training. Initializes model, loss and optim, and calls `train_epoch`.
     '''
@@ -53,11 +50,10 @@ def train(scope: dict, run_name: str = 'unet') -> None:
 
     bam_index = BamIndex(scope['bam_file'])
 
-    best_val_loss = None
     epochs = scope['epochs']
 
     start_total = time.time()
-    tb = SummaryWriter(f'runs/{run_name}')
+    tensorboard = SummaryWriter(f'runs/{run_name}')
 
     total_steps = 0
 
@@ -74,10 +70,10 @@ def train(scope: dict, run_name: str = 'unet') -> None:
             loss_f=loss_f, 
             scope=scope, 
             total_steps=total_steps,
-            best_val_loss=best_val_loss, 
             epoch=epoch, 
-            tb=tb,
-        ) # TODO myb do not evaluate on padded part of the signal
+            tensorboard=tensorboard,
+            run_name=run_name,
+        )
 
         end = time.time()
         runtime = end - start
@@ -86,7 +82,7 @@ def train(scope: dict, run_name: str = 'unet') -> None:
     end_total = time.time()
     total_runtime = int(end_total - start_total) / 60
     logger.info(f'training completed ({epochs} epochs) in {total_runtime:.1f} minutes.')
-    tb.close()
+    tensorboard.close()
 
 def train_epoch(
         model: EventDetector, 
@@ -97,9 +93,8 @@ def train_epoch(
         scope: dict, 
         epoch: int, 
         total_steps: int,
-        best_val_loss: float, 
-        nprocesses: int = 3,
-        tb = None,
+        tensorboard: SummaryWriter,
+        run_name: str = None,
     ):
     """
     Train the model for a single epoch.
@@ -108,21 +103,21 @@ def train_epoch(
 
     logger = logging.getLogger('train_epoch')
 
+    nprocesses = scope['nprocesses']
+
     batches: torch.multiprocessing.Queue
     processes: list[torch.multiprocessing.Process]
     processes, batches = load_batches_mp(
         bam_index,
         scope['train_pod5'],
         batch_size=scope['batch_size'],
-        nprocesses=scope['nprocesses'],
+        nprocesses=nprocesses,
     )
 
     time.sleep(2)
 
     log_interval = scope['log_interval']
     running_loss = 0.0
-
-    writer = SummaryWriter(log_dir='runs/dilations=1-1-3-5-7')
 
     done_signals = 0
     while done_signals < nprocesses:
@@ -148,19 +143,14 @@ def train_epoch(
             loss_f=loss_f, 
         )
 
-        writer.add_scalar(
+        tensorboard.add_scalar(
             tag='training loss', 
             scalar_value=train_report["loss"],
             global_step=epoch*total_steps,
         )
 
-        writer.add_scalar(
-            tag='true positives (train)', 
-            scalar_value=train_report["true_positives"],
-            global_step=epoch*total_steps,
-        )
 
-        writer.add_pr_curve(
+        tensorboard.add_pr_curve(
             'precision / recall (train)',
             labels=train_report["labels"],
             predictions=train_report["probabilities"],
@@ -188,19 +178,19 @@ def train_epoch(
             print_eval(epoch, total_steps, test_report)
 
             val_loss = test_report['loss']
-            writer.add_scalar(
+            tensorboard.add_scalar(
                 'validation loss', 
                 test_report["loss"],
                 epoch*total_steps,
             )
 
-            writer.add_scalar(
+            tensorboard.add_scalar(
                 tag='true positives (val)', 
                 scalar_value=test_report["true_positives"],
                 global_step=epoch*total_steps,
             )
 
-            writer.add_pr_curve(
+            tensorboard.add_pr_curve(
                 'precision / recall (val)',
                 labels=torch.tensor(test_report["labels"]),
                 predictions=torch.tensor(test_report["probabilities"]),
@@ -208,7 +198,7 @@ def train_epoch(
             )
 
             logger.info('saving model...')
-            save_model(model, epoch, total_steps, val_loss)
+            save_model(model, epoch, total_steps, val_loss, name=run_name)
             logger.info('model saved')
 
             #if best_val_loss is None:
@@ -231,7 +221,6 @@ def train_epoch(
             process.terminate()
 
     logger.info(f'epoch {epoch} completed.')
-    writer.close()
 
 def train_step(
         batch: torch.Tensor, 
@@ -249,7 +238,7 @@ def train_step(
     batch, labels = batch.to(device), labels.to(device)
     predictions = torch.squeeze(
         model(batch), 
-        dim=2 if model.name == 'EventDetector' else 1,
+        dim=1 if model.name == UNet.name else 2,
     )
 
     loss, focal, huber, consec = loss_f(batch, predictions, labels)
@@ -269,7 +258,6 @@ def train_step(
         'focal_loss': focal.item(),
         'huber_loss': huber.item(),
         'consecutive_loss': consec.item(),
-        #'probabilities': probabilities.detach(),
+        'probabilities': (predictions.sigmoid()).detach(),
         'labels': labels.detach(),
-        #'true_positives': true_positives,
     }

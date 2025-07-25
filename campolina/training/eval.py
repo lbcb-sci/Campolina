@@ -5,6 +5,7 @@ import numpy as np
 
 from campolina.data import BamIndex, load_batches_mp, DONE_SIGNAL
 from campolina.loss import CustomLoss
+from campolina.model import UNet
 
 def eval_model(
         bam_index: BamIndex,
@@ -12,7 +13,7 @@ def eval_model(
         device: torch.device, 
         loss_f: CustomLoss, 
         scope: dict, 
-        nprocesses: int = 3,
+        nprocesses: int,
     ) -> dict:
     start = time.time()
     model.eval()
@@ -48,7 +49,10 @@ def eval_model(
         batch, labels = batch.to(device), labels.to(device)
 
         with torch.no_grad():
-            predictions = torch.squeeze(model(batch), dim=2)
+            predictions = torch.squeeze(
+                model(batch), 
+                dim=1 if model.name == UNet.name else 2,
+            )
             loss, focal, huber, consec = loss_f(batch, predictions, labels)
 
         probabilities = predictions.sigmoid()
