@@ -83,8 +83,9 @@ class Down(nn.Module):
 
         super().__init__()
 
+        self.maxpool = nn.MaxPool1d(pooling)
+
         self.conv = nn.Sequential(
-            nn.MaxPool1d(pooling),
             ConvBlock(
                 in_ch=in_ch, 
                 out_ch=out_ch, 
@@ -99,7 +100,7 @@ class Down(nn.Module):
             #),
         )
 
-    def forward(self, x: Tensor) -> Tensor: return self.conv(x)
+    def forward(self, x: Tensor) -> Tensor: return self.conv(self.maxpool(x))
 
 class Up(nn.Module):
     '''Upsample the input using transposed_conv + conv.'''
@@ -116,7 +117,7 @@ class Up(nn.Module):
         assert kernel % 2 == 1
 
         # TODO try other upsampling strategies
-        self.transposed_conv = nn.ConvTranspose1d(
+        self.convT = nn.ConvTranspose1d(
             in_channels=in_ch,
             out_channels=out_ch,
             kernel_size=2,
@@ -138,7 +139,7 @@ class Up(nn.Module):
             #),
         )
 
-    def forward(self, x: Tensor) -> Tensor: return self.conv(self.transposed_conv(x))
+    def forward(self, x: Tensor) -> Tensor: return self.conv(self.convT(x))
 
 class ConvBlock(nn.Module):
     '''Conv + Norm + ReLU + Dropout'''
@@ -152,7 +153,7 @@ class ConvBlock(nn.Module):
         assert kernel % 2 == 1
         super().__init__()
 
-        self.conv_norm = nn.Sequential(
+        self.block = nn.Sequential(
             nn.Conv1d(
                 in_channels=in_ch, 
                 out_channels=out_ch,
@@ -163,15 +164,10 @@ class ConvBlock(nn.Module):
                 num_groups=min(out_ch, 32),
                 num_channels=out_ch,
             ),
-            #nn.BatchNorm1d(
-                #num_features=out_ch,
-                #track_running_stats=True,
-                #momentum=0.8,
-            #),
             nn.ReLU(),
             nn.Dropout(dropout),
         )
 
-    def forward(self, x: Tensor) -> Tensor: return self.conv_norm(x)
+    def forward(self, x: Tensor) -> Tensor: return self.block(x)
 
     
