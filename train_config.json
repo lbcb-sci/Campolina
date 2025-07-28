@@ -8,7 +8,7 @@
 
     "batch_size": 1536,
     "val_batch_size": 1536,
-    "gpu": [1],
+    "gpu": [3],
     "epochs": 2,
     "eval_interval": 200,
     "log_interval": 25,

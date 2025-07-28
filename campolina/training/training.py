@@ -149,7 +149,6 @@ def train_epoch(
             global_step=epoch*total_steps,
         )
 
-
         tensorboard.add_pr_curve(
             'precision / recall (train)',
             labels=train_report["labels"],
@@ -221,6 +220,7 @@ def train_epoch(
             process.terminate()
 
     logger.info(f'epoch {epoch} completed.')
+    return total_steps
 
 def train_step(
         batch: torch.Tensor, 

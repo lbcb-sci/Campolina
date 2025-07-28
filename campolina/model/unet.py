@@ -30,15 +30,14 @@ class UNet(nn.Module):
             ) for i, _ in enumerate(chan_down[:-1])
         ])
 
-        self.uplayers = []
-        for i, _ in enumerate(chan_up[:-1]):
-            self.uplayers.append(Up(
-                in_ch=chan_up[i] + chan_down[-i-1], # residual
+        self.uplayers = nn.ModuleList([
+            Up(
+                in_ch=chan_up[i]+chan_down[-i-1], # residual
                 out_ch=chan_up[i+1],
                 kernel=kernel,
                 dropout=dropout,
-            ))
-        self.uplayers = nn.ModuleList(self.uplayers)
+            ) for i, _ in enumerate(chan_up[:-1])
+        ])
 
         self.last = nn.Conv1d(
             in_channels=chan_down[0]+chan_up[-1], # first + output of upsample
@@ -79,7 +78,7 @@ class Down(nn.Module):
             out_ch: int,
             kernel: int,
             pooling: int = 2,
-            dropout: float = 0.1,
+            dropout: float = 0.0,
         ):
 
         super().__init__()
@@ -110,7 +109,7 @@ class Up(nn.Module):
             in_ch: int, 
             out_ch: int,
             kernel: int,
-            dropout: float = 0.1,
+            dropout: float = 0.0,
         ):
 
         super().__init__()
@@ -165,6 +164,10 @@ class ConvBlock(nn.Module):
                 num_groups=min(out_ch, 32),
                 num_channels=out_ch,
             ),
+            #nn.BatchNorm1d(
+                #num_features=out_ch,
+                #momentum=0.01,
+            #),
             nn.ReLU(),
             nn.Dropout(dropout),
         )

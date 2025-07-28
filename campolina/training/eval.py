@@ -30,6 +30,7 @@ def eval_model(
     processes, batches = load_batches_mp( 
         bam_index,
         pod5_path=scope['validation_pod5'], 
+        #pod5_path=scope['train_pod5'], 
         batch_size=scope['val_batch_size'],
     )
 
@@ -51,7 +52,7 @@ def eval_model(
         with torch.no_grad():
             predictions = torch.squeeze(
                 model(batch), 
-                dim=1 if model.name == UNet.name else 2,
+                dim=(1 if model.name == UNet.name else 2),
             )
             loss, focal, huber, consec = loss_f(batch, predictions, labels)
 
