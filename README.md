@@ -1,6 +1,6 @@
 # CAMPOLINA
 
-### [Weights](https://zenodo.org/records/15626806)
+### [Preprint](https://www.biorxiv.org/content/10.1101/2025.07.08.663658v1) | [Weights](https://zenodo.org/records/15626806)
 
 [Sara Bakić](https://scholar.google.com/citations?user=xypMKj8AAAAJ&hl=en)<sup>1,2</sup>,
 [Krešimir Friganović](https://scholar.google.hr/citations?user=0KOB_YkAAAAJ&hl=en)<sup>1</sup>,
@@ -56,15 +56,12 @@ Within the scope of this paper, we develop an extensive pipeline for assessing t
 ```bash 
 bash extract_ground_truth.sh
 ```
-2. Align predicted events to the ground truth events with detailed usage explanation available through ```--help```.
-```bash
-python align_events.py
-```
-3. Quantify the quality of the segmentation with detailed usage explanation available through ```--help```.
-```bash
-pyton assess_segmentation_quality.py
-```
-#### Example
+#### Assess the segmentation quality
+To run the full segmentation quality assessment pipeline, the following steps need to be done:
+1. Extract additional information for the predicted events with ```convert_parquet_for_analysis.py```. The exact usage can be checked with ```--help```.
+2. Align the predicted segmentation to the ground truth segmentation with ```align_events.py```. The exact usage can be checked with ```--help```.
+3. Assess the quality of predicted segmentation with ```assess_segmentation_quality.py```. The exact usage can be checked with ```--help```.
+
 
 ## Contact
 If you have any questions, please feel free to email the authors or open an issue.

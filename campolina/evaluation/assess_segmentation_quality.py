@@ -29,8 +29,10 @@ def get_remora_borders(bam_index, read_id):
         remora_borders = np.array(a.get_tag('RR')) + a.get_tag('ts')
     return remora_borders
 
+
 def jaccard(tp, fp, fn):
     return tp / (tp + fp + fn)
+
 
 def naive_evaluation(predicted_borders, bam_index):
     # Initialize overall counters
@@ -59,6 +61,8 @@ def naive_evaluation(predicted_borders, bam_index):
         per_read_jaccard.append(jaccard(tp, fp, fn))
 
     print(f'The naive Jaccard similarity is {np.mean(per_read_jaccard)}')
+
+
 
 def find_intersection(remora_borders, predicted_borders):
     count = 0
@@ -164,11 +168,14 @@ def correlation_evaluation(align_df, restrict_to_matches=False, colid='ref_kmer_
         align_df = align_df.filter(pl.col('event_align_status') == 0)
     return pearsonr(align_df['event_mean'], align_df[colid])
 
+
 def alignment_score_evaluation(match_num, insert_num, delete_num, ref_len, match_score=1, insertion_score=0.5, deletion_score=0.5):
     return (match_score*match_num - insertion_score*insert_num - deletion_score*delete_num)/ref_len
 
+
 def len_alignment_score_evaluation(match_len, insert_len, delete_len):
     return match_len - (insert_len + delete_len)
+
 
 def aligned_event_evaluation(align_csv):
     match_nums = []

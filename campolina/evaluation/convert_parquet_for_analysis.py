@@ -1,38 +1,48 @@
 import argparse
-from tqdm import tqdm
 import polars as pl
 import pod5 as p5
 import numpy as np
 
+from tqdm import tqdm
+
 def main(args):
+
     df = pl.read_parquet(args.parquet)
 
-    cols = {
-        'read_id': pl.Categorical,
-        'event_start': pl.Int32,
-        'event_len': pl.Int32,
-        'event_mean': pl.Float32,
-        'event_std': pl.Float32,
+    # Build map of read_id → sorted event_start list
+    borders_series = (
+        df
+        .group_by("read_id", maintain_order=True)
+        .agg(pl.col("event_start"))  # becomes a list column
+        .rename({"event_start": "borders"})
+    )
+
+    # Convert to Python dict for lookup
+    borders_map = {
+        rid: borders
+        for rid, borders in zip(borders_series["read_id"], borders_series["borders"])
     }
 
     full_info = []
-
     with p5.Reader(args.pod5) as reader:
-        for rid, g in tqdm(df.group_by('read_id')):
+        for r in tqdm(reader.reads(selection=borders_map.keys(), preload="samples")):
+            rid = str(r.read_id)
+            signal = r.signal  # NumPy array
+            borders = borders_map[rid]
+            if borders.is_empty():
+                continue
+            # compute splits
+            segments = np.split(signal, borders)[1:]
+            for st, seg in zip(borders, segments):
+                full_info.append((rid, int(st), len(seg), float(np.mean(seg)), float(np.std(seg))))
 
-            for r in reader.reads(selection=rid, preload='samples', missing_ok=False): 
-                signal = r.signal
+    cols = {
+        'read_id': pl.Categorical, 'event_start': pl.Int32, 'event_len': pl.Int32,
+        'event_mean': pl.Float32, 'event_std': pl.Float32
+    }
+    out = pl.DataFrame(full_info, schema=cols, orient="row")
+    out.write_csv(args.target)
 
-            borders = g['event_start']
-            signal_events = np.split(signal, borders)[1:]
-            signal_peaks = borders
-            full_info.extend([
-                (rid, signal_peak, len(e), np.mean(e), np.std(e))
-                for signal_peak, e in zip(signal_peaks, signal_events)
-            ])
-
-    full_info = pl.DataFrame(full_info, schema=cols, orient='row')
-    full_info.write_csv(args.target)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

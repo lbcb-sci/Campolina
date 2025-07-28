@@ -1,5 +1,6 @@
 import argparse
 import os
+import time
 import tqdm
 from pathlib import Path
 import multiprocessing as mp
@@ -7,10 +8,10 @@ import torch
 import numpy as np
 
 os.environ['POLARS_MAX_THREADS'] = '32'
-
 import polars as pl
 pl.enable_string_cache()
 pl.Config.set_fmt_str_lengths(38)
+
 import pandas as pd
 import pyarrow.parquet as pq
 import pyarrow as pa
@@ -19,13 +20,9 @@ from campolina.data.pod5_util import *
 from campolina.data.utils import *
 from campolina.data.output_utils import *
 from campolina.data.loader_utils import *
-from campolina.model.base import EventDetector
-from campolina.model.unet import UNet
+from campolina.model import EventDetector, UNet
 
 mp.set_start_method('spawn', force=True)
-
-import time
-
 log=True
 
 def find_positive_indices(row): return (row > 0).nonzero(as_tuple=True)[0]
@@ -34,14 +31,16 @@ def writer_worker(queue, output_path, schema, mode):
     writer = pq.ParquetWriter(output_path, schema)
     while True:
         item = queue.get()
-        if item is None:
-            break
+
+        if item is None: break
+
         logits, chunk_borders, read_ids, signal_chunks = item
         peaks = [(logit > 0).nonzero(as_tuple=True)[0] for logit in logits]
         events = process_output_format(peaks, chunk_borders, read_ids, mode, signal_chunks)
         df = pd.DataFrame(events)
         table = pa.Table.from_pandas(df, schema=schema)
         writer.write_table(table)
+
     writer.close()
 
 def predict_detect(model, batch, device):
@@ -54,7 +53,6 @@ def predict(model_path, devices, pod5_rids_pairs, bs, tgt_file, workers, mode):
     print(f'Devices: {devices}')
     device = devices[0]
     state_dict = torch.load(model_path, map_location=device)
-    print(state_dict)
 
     #model = EventDetector(in_channels=5, out_channels=[32, 64, 64, 128, 128],
                           #classification_head=[128, 1], kernel_size_one=3, kernel_size_all=31).to(devices[0])
@@ -131,8 +129,7 @@ def main(args):
     predict(args.model_path, devices, pod5_readid_pairs, args.bs,
                        f'{args.tgt_dir}/{args.abbrev}_events', 1, args.mode)
     full_end = time.time()
-    if log:
-        print(f'Full execution took {full_end - full_start}')
+    if log: print(f'Full execution took {full_end - full_start}')
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

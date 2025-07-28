@@ -90,13 +90,9 @@ def create_matrix(remora_borders, prediction_borders):
     remora_borders = np.array(remora_borders, dtype=object)
     prediction_borders = np.array(prediction_borders, dtype=object)
 
-    #intersection_counts = np.zeros((len(remora_borders), len(prediction_borders)))
     vector_intersection = np.vectorize(intersection_length, otypes=[float])
-    #start = time.time()
     intersection_counts = vector_intersection(np.array(remora_borders, dtype=object)[:, None], np.array(prediction_borders, dtype=object))
-    #end = time.time()
-    #print(f'Matrix creation took: {end - start}')
-    #print(f'Matrices are the same: {np.array_equal(intersection_counts2, intersection_counts)}')
+
 
     if len(remora_borders) == 0 or len(prediction_borders) == 0:
         print(remora_borders)
@@ -105,7 +101,7 @@ def create_matrix(remora_borders, prediction_borders):
     remora_lens, prediction_lens = np.vectorize(len)(remora_borders), np.vectorize(len)(prediction_borders)
     cartesian_lens = tuple(np.meshgrid(prediction_lens, remora_lens))
     remora_lens_ravel, prediction_lens_ravel = cartesian_lens[1].ravel(), cartesian_lens[0].ravel()
-    #cartesian_lens = np.column_stack([arr.ravel() for arr in cartesian_lens])
+
     min_lengths = np.minimum(remora_lens_ravel, prediction_lens_ravel)
     min_lengths = np.reshape(min_lengths, (len(remora_borders), len(prediction_borders)))
 
@@ -210,7 +206,7 @@ def merge_csvs(src, tgt_dir, filename_description, delete_src=True):
 
 
 def align_worker(args):
-    refined_bam, pod5_file, predictions, kmer_model, full_kmer_info, read_id, remove_hard, trimmed, full_vs_trimmed, writer_path = args
+    refined_bam, pod5_file, predictions, kmer_model, full_kmer_info, read_id, writer_path = args
     #tqdm.write('Starting worker')
     #predictions = pl.scan_csv(predictions_path).collect()
     alns = refined_bam.get_alignment(read_id)
@@ -230,50 +226,21 @@ def align_worker(args):
         ref_kmers = [ref_seq[i:i + kmer_model.kmer_len] for i in range(len(ref_seq) - kmer_model.kmer_len + 1)]
         #print(f'Remora kmer extraction for read {read_id} done')
 
-        if remove_hard:
-            remora_borders, ref_kmers, ref_levels = adjust_borders(remora_borders, ref_seq, ref_kmers, ref_levels)
         for r in pod5_reader.reads(selection=[a.query_name]):
             remora_means = get_remora_means(r.signal, remora_borders)
-
-        if trimmed or full_vs_trimmed:
-            remora_start, remora_end = remora_borders[0], remora_borders[-1]
-            remora_borders -= remora_start
-        else:
-            remora_start, remora_end = 0, 1e10
 
     prediction_borders = np.array(
         predictions.filter((pl.col('read_id') == read_id)).select('event_start').collect()['event_start'].to_list()
     )
 
-    #print(f'Event means for read {read_id} calculated')
-
-    #start = time.time()
     expanded_remora_borders = expand_borders(remora_borders)
-    #end = time.time()
-    #print(f'Expanding Remora borders took: {end - start}')
-    #start = time.time()
     expanded_prediction_borders = expand_borders(prediction_borders)
-    #end = time.time()
-    #print(f'Expanding our borders took: {end - start}')
 
-    #start = time.time()
-    #print(f'Creating matrix for read: {read_id}')
     align_matrix2, corner_x2, corner_y2 = create_matrix(expanded_remora_borders, expanded_prediction_borders)
     if align_matrix2 is None:
         return
-    #end = time.time()
-    #print(f'Alternative creating matrix took: {end - start}')
 
-    # print((align_matrix == align_matrix2).all())
-    #print(f'Created matrix for read: {read_id}')
-
-    #start = time.time()
     aligned_pairs, match_query, match_ref, insertion, deletion = traceback(align_matrix2, corner_x2, corner_y2)
-    #end = time.time()
-    #print(f'Traceback took: {end - start}')
-
-    #start = time.time()
-    #print(f'Getting event kmer alignment for read: {read_id}')
 
     event_means = np.array(
         predictions.filter((pl.col('read_id') == read_id) & (pl.col('event_start') <= prediction_borders[aligned_pairs[-1][0]])).select('event_mean').collect()['event_mean'].to_list()
@@ -283,13 +250,10 @@ def align_worker(args):
 
     event_kmer_alignment = get_event_kmer_alignment(read_id, event_means, prediction_borders, remora_means, remora_borders, aligned_pairs, list(match_query.keys()),
                              list(deletion.keys()), ref_levels, ref_kmers, kmer_model)
-    #end = time.time()
-    #print(f'Event kmer alignment took: {end - start}')
     event_kmer_alignment = event_kmer_alignment.with_columns(read_id=pl.lit(read_id).cast(pl.Categorical))
     full_kmer_info = pl.concat([full_kmer_info, event_kmer_alignment])
 
     full_kmer_info.collect().write_csv(writer_path)
-    #print(f'Processed read: {read_id} and stored in {writer_path}')
 
 
 def main(args):
@@ -298,7 +262,7 @@ def main(args):
 
     predictions = pl.scan_csv(args.predictions)
     read_ids = sorted(predictions.select(pl.col('read_id')).unique().collect()[
-                          'read_id'].to_list() if args.read_ids is None else args.read_ids)
+                          'read_id'].to_list())
 
     schema = {'event_start': pl.Int32, 'event_end': pl.Int32, 'event_mean': pl.Float32, 'remora_start': pl.Int32,
               'remora_end': pl.Int32, 'remora_event_mean': pl.Float32, 'ref_kmer_level': pl.Float32, 'ref_kmer': pl.Categorical,
@@ -307,13 +271,13 @@ def main(args):
 
 
     if args.workers == 1:
-        args = (refined_bam, args.pod5_file, predictions, kmer_model, full_kmer_info, args.read_ids[0], args.remove_hard, args.trimmed, args.full_vs_trimmed, f'{args.tgt_dir}/{args.filename_description}.csv')
+        args = (refined_bam, args.pod5_file, predictions, kmer_model, full_kmer_info, read_ids[0], f'{args.tgt_dir}/{args.filename_description}.csv')
         align_worker(args)
         exit(0)
 
     writers_path = [f'{args.tgt_dir}/{args.filename_description}_{i}.csv' for i in range(len(read_ids))]
     with mp.get_context("spawn").Pool(args.workers) as pool, tqdm(total=len(read_ids)) as pbar:
-        worker_args = [(refined_bam, args.pod5_file, predictions, kmer_model, full_kmer_info, r, args.remove_hard, args.trimmed, args.full_vs_trimmed, writers_path[i]) for i, r in
+        worker_args = [(refined_bam, args.pod5_file, predictions, kmer_model, full_kmer_info, r, writers_path[i]) for i, r in
                 enumerate(read_ids)]
         for _ in pool.imap_unordered(align_worker, worker_args):
             pbar.update(1)
@@ -323,18 +287,14 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--remora_bam', default='/mnt/sod2-project/csb4/wgs/metagenomics_data/projects/segmentation/segmentation_data/R10_Zymo_subsample/barcode24_zymo_wo_EC_1k_per_species_min_len_1k/barcode24_zymo_subsampled_wo_EC_min_len_1k.bam')
-    parser.add_argument('--predictions', default='/home/stumaxime/scratch/campolina/out.csv')
-    parser.add_argument('--pod5_file', default='/mnt/sod2-project/csb4/wgs/metagenomics_data/projects/segmentation/segmentation_data/R10_Zymo_subsample/barcode24_zymo_wo_EC_1k_per_species_min_len_1k/barcode24_zymo_subsampled_wo_EC_min_len_1k.pod5')
+    parser.add_argument('--remora_bam', default='/home/bakics/scratch/Campolina_paper/segmenteval/R10_zymo_segmenteval_subset/refined_R10_zymo_segmenteval_subset.bam', help='The path to the .bam file containing refined event borders stored under RR tag. This can be constructed following the ground truth pipeline')
+    parser.add_argument('--predictions', default='/home/bakics/scratch/Campolina_paper/segmenteval/R10_zymo_segmenteval_subset/R10_Zymo_segmenteval_14112024_Focal_alpha0_8_gamma1_alpha5000_beta0_05_eta10_5channel_final2048_400bps_events_new.csv', help='The path to a csv file generated from parquet file with full information on predicted events. The csv file can be constructed from parquet with convert_parquet_for_analysis.py')
+    parser.add_argument('--pod5_file', default='/home/bakics/scratch/Campolina_paper/segmenteval/R10_zymo_segmenteval_subset/R10_zymo_segmenteval_subset.pod5', help='Path to .pod5 with the corresponding signals')
     #parser.add_argument('--read_ids', default=['af83f8de-ce0e-4ed1-9e75-605304a5f74d'], nargs='+')
-    parser.add_argument('--read_ids', default=None, nargs='+')
-    parser.add_argument('--kmer_model', default='/home/stumaxime/scratch/campolina/campolina/groundtruth/9mers_levels_R10_4_1_400bps.txt')
+    parser.add_argument('--kmer_model', default='/home/bakics/remora_analysis/9mer_levels_v1_400bps.txt', help='The path to the corresponding k-mer model file in R10 format')
+    parser.add_argument('--filename_description', default='005665c5-7b3f-44c8-989e-d0e23af14b23', help='The prefix of the final output file')
     parser.add_argument('--tgt_dir', default='./')
-    parser.add_argument('--filename_description', default='005665c5-7b3f-44c8-989e-d0e23af14b23')
     parser.add_argument('--workers', type=int, default=1)
     parser.add_argument('--delete_src', action='store_true')
-    parser.add_argument('--remove_hard', action='store_true')
-    parser.add_argument('--trimmed', action='store_true')
-    parser.add_argument('--full_vs_trimmed', action='store_true')
 
     main(parser.parse_args())
