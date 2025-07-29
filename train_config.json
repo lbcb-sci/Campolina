@@ -5,9 +5,9 @@
 
     "nprocesses": 3,
 
-    "batch_size": 128,
-    "val_batch_size": 128,
-    "gpu": [3],
+    "batch_size": 1024,
+    "val_batch_size": 1024,
+    "gpu": [0],
     "epochs": 5,
     "eval_interval": 300,
     "log_interval": 25,
