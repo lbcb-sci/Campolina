@@ -3,6 +3,7 @@ wandb/**
 *.pth
 torch_compile_debug/**
 models/**
+weights/**
 *.pkl
 .tensorboard-info/**
 tmp*

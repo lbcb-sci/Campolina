@@ -126,7 +126,7 @@ def train_epoch(
 
         if isinstance(batch, str) and batch == DONE_SIGNAL:
             done_signals += 1
-            logger.info(f'received done signal (done signals = {done_signals})')
+            logger.info(f'received done signal (done signals = {done_signals}/{nprocesses})')
             continue
 
         total_steps += 1
@@ -175,7 +175,10 @@ def train_epoch(
             tensorboard.add_scalar('val_loss', val_loss, total_steps)
 
             val_f1 = val_report['f1']
-            tensorboard.add_scalar(tag='f1 (val)', scalar_value=val_f1, global_step=total_steps)
+            tensorboard.add_scalar(tag='F1 (val)', scalar_value=val_f1, global_step=total_steps)
+
+            val_mcc = val_report['mcc']
+            tensorboard.add_scalar(tag='MCC (val)', scalar_value=val_mcc, global_step=total_steps)
 
             tensorboard.add_pr_curve(
                 'P/R validation',
@@ -191,6 +194,7 @@ def train_epoch(
                 step=total_steps, 
                 val_loss=val_loss, 
                 val_f1=val_f1, 
+                val_mcc=val_mcc,
                 name=run_name
             )
             logger.info('model saved')

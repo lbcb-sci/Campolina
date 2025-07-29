@@ -2,13 +2,13 @@ import time, logging
 import torch
 from torch import nn
 import numpy as np
-from sklearn.metrics import f1_score
+from sklearn.metrics import f1_score, matthews_corrcoef
 
 from campolina.data import BamIndex, load_batches_mp, DONE_SIGNAL
 from campolina.loss import CustomLoss
 from campolina.model import UNet
 
-@torch.no_grad
+@torch.no_grad()
 def eval_model(
         bam_index: BamIndex,
         model: nn.Module, 
@@ -46,7 +46,7 @@ def eval_model(
 
         if isinstance(batch, str) and batch == DONE_SIGNAL:
             done_signals += 1
-            logger.info(f'received done signal (done signals = {done_signals})')
+            logger.info(f'received done signal (done signals = {done_signals}/{nprocesses})')
             continue
 
         batch, labels = batch.to(device), labels.to(device)
@@ -71,9 +71,16 @@ def eval_model(
             logger.error(f'process {process.pid} timeout during join, terminating')
             process.terminate()
 
+    logger.info('computing metrics...')
+
     probabilities = np.array(full_probabilities)
     labels = np.array(full_labels)
-    f1 = f1_score(labels.reshape(-1).astype(int), (probabilities.reshape(-1) > 0.5).astype(int))
+
+    y_true = labels.reshape(-1).astype(int)
+    y_pred = (probabilities.reshape(-1) > 0.5).astype(int)
+
+    f1 = f1_score(y_true, y_pred, average='binary')
+    mcc = matthews_corrcoef(y_true, y_pred)
 
     end = time.time()
     runtime = int(end - start)
@@ -87,4 +94,5 @@ def eval_model(
         'probabilities': probabilities,
         'labels': labels,
         'f1': f1,
+        'mcc': mcc,
     }
