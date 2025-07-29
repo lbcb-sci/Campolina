@@ -9,3 +9,5 @@ tmp*
 torchinductor*
 runs/**
 *.parquet
+*.csv
+evaluate.sh

@@ -25,7 +25,7 @@ def dataloader_process(
 
     logging.basicConfig(level=logging.INFO, format='[%(processName)s] %(message)s')
     logger = logging.getLogger('load_process')
-    logger.info('dataloader process started')
+    logger.info('process started')
 
     current_batch = []; current_borders = []
 
@@ -100,7 +100,8 @@ def load_batches_mp(
         mp.Process(
             target=dataloader_process, 
             args=(bucket, pod5_path, bam_index, batch_size, dataset),
-        ) for bucket in buckets
+            name=f'DataLoader-{i+1}',
+        ) for i, bucket in enumerate(buckets)
     ]
 
     [process.start() for process in processes]

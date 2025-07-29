@@ -2,11 +2,13 @@ import time, logging
 import torch
 from torch import nn
 import numpy as np
+from sklearn.metrics import f1_score
 
 from campolina.data import BamIndex, load_batches_mp, DONE_SIGNAL
 from campolina.loss import CustomLoss
 from campolina.model import UNet
 
+@torch.no_grad
 def eval_model(
         bam_index: BamIndex,
         model: nn.Module, 
@@ -15,17 +17,17 @@ def eval_model(
         scope: dict, 
         nprocesses: int,
     ) -> dict:
-    start = time.time()
-    model.eval()
 
+    model = model.eval()
     full_probabilities = []; full_labels = []
 
     # init losses
     sumloss = sumfocal = sumhuber = sumconsec = 0.0
-    sumtp = steps = 0
+    steps = 0
 
     logger = logging.getLogger('eval')
     logger.info('starting model evaluation...')
+    start = time.time()
 
     processes, batches = load_batches_mp( 
         bam_index,
@@ -48,25 +50,19 @@ def eval_model(
             continue
 
         batch, labels = batch.to(device), labels.to(device)
+        batch = batch[:, :4, :] # remove t-statistic channel
 
-        with torch.no_grad():
-            predictions = torch.squeeze(
-                model(batch), 
-                dim=(1 if model.name == UNet.name else 2),
-            )
-            loss, focal, huber, consec = loss_f(batch, predictions, labels)
+        predictions = torch.squeeze(model(batch), dim=(1 if model.name == UNet.name else 2))
+
+        loss, focal, huber, consec = loss_f(batch, predictions, labels)
+
+        sumloss += loss.item(); sumfocal += focal.item()
+        sumhuber += huber.item(); sumconsec += consec.item()
+        steps += 1
 
         probabilities = predictions.sigmoid()
-        sumtp += (((probabilities > 0.5).int() == 1) & (labels.int() == 1)).sum()
-        sumloss += loss.item()
-        sumfocal += focal.item()
-        sumhuber += huber.item()
-        sumconsec += consec.item()
-
         full_probabilities.extend(list(probabilities.cpu().numpy()))
         full_labels.extend(list(labels.cpu().numpy()))
-
-        steps += 1
 
     logger.info('joining processes...')
     for process in processes:
@@ -74,6 +70,10 @@ def eval_model(
         except:
             logger.error(f'process {process.pid} timeout during join, terminating')
             process.terminate()
+
+    probabilities = np.array(full_probabilities)
+    labels = np.array(full_labels)
+    f1 = f1_score(labels.reshape(-1).astype(int), (probabilities.reshape(-1) > 0.5).astype(int))
 
     end = time.time()
     runtime = int(end - start)
@@ -84,7 +84,7 @@ def eval_model(
         'focal_loss': sumfocal / steps,
         'huber_loss': sumhuber / steps,
         'consecutive_loss': sumconsec / steps,
-        'probabilities': np.array(full_probabilities),
-        'labels': np.array(full_labels),
-        'true_positives': sumtp / steps,
+        'probabilities': probabilities,
+        'labels': labels,
+        'f1': f1,
     }

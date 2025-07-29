@@ -2,12 +2,12 @@ import time, logging
 import torch
 from torch.utils.tensorboard.writer import SummaryWriter
 
+from campolina.data import BamIndex, load_batches_mp, DONE_SIGNAL
 from campolina.model import EventDetector, UNet
 from campolina.loss import CustomLoss
-from campolina.data import BamIndex, load_batches_mp, DONE_SIGNAL
 
-from .eval import eval_model
 from .utils import save_model, print_eval, count_params
+from .eval import eval_model
 
 def train(scope: dict, run_name: str = 'model') -> None:
     '''
@@ -29,10 +29,10 @@ def train(scope: dict, run_name: str = 'model') -> None:
     #print(model)
 
     logger.info('initializing model...')
-    model = UNet.make_default(dropout=0.2).to(device)
+    model = UNet.make_default().to(device)
     print(model)
 
-    logger.info(f'number of parameters: {count_params(model)}')
+    logger.info(f'model #parameters = {count_params(model)}')
 
     logger.info('torch.compile(model)...')
     model = torch.compile(model, fullgraph=True, backend='inductor')
@@ -49,18 +49,15 @@ def train(scope: dict, run_name: str = 'model') -> None:
     )
 
     bam_index = BamIndex(scope['bam_file'])
-
-    epochs = scope['epochs']
-
-    start_total = time.time()
     tensorboard = SummaryWriter(f'runs/{run_name}')
-
+    epochs = scope['epochs']
     total_steps = 0
+    start_total = time.time()
 
     for epoch in range(1, epochs+1):
         logger.info(f'|| STARTING EPOCH {epoch} ||')
 
-        start = time.time()
+        start_epoch = time.time()
 
         total_steps = train_epoch(
             bam_index=bam_index,
@@ -75,9 +72,9 @@ def train(scope: dict, run_name: str = 'model') -> None:
             run_name=run_name,
         )
 
-        end = time.time()
-        runtime = end - start
-        logger.info(f'[[epoch {epoch} took {runtime / 60:.1f} minutes]]')
+        end_epoch = time.time()
+        runtime_epoch = end_epoch - start_epoch
+        logger.info(f'[[epoch {epoch} took {runtime_epoch / 60:.1f} minutes]]')
 
     end_total = time.time()
     total_runtime = int(end_total - start_total) / 60
@@ -143,20 +140,18 @@ def train_epoch(
             loss_f=loss_f, 
         )
 
-        tensorboard.add_scalar(
-            tag='training loss', 
-            scalar_value=train_report["loss"],
-            global_step=epoch*total_steps,
-        )
+        train_loss = train_report['loss']
+
+        tensorboard.add_scalar('train_loss', train_loss, total_steps)
 
         tensorboard.add_pr_curve(
-            'precision / recall (train)',
-            labels=train_report["labels"],
-            predictions=train_report["probabilities"],
-            global_step=epoch*total_steps,
+            'P/R training',
+            labels=train_report['labels'],
+            predictions=train_report['probabilities'],
+            global_step=total_steps,
         )
 
-        running_loss += train_report["loss"]
+        running_loss += train_loss
 
         if total_steps % log_interval == 0:
             running_loss /= log_interval
@@ -165,7 +160,7 @@ def train_epoch(
             running_loss = 0.0
 
         if total_steps % scope['eval_interval'] == 0:
-            test_report = eval_model(
+            val_report = eval_model(
                 bam_index,
                 model=model, 
                 device=device, 
@@ -174,30 +169,30 @@ def train_epoch(
                 nprocesses=nprocesses,
             )
 
-            print_eval(epoch, total_steps, test_report)
+            print_eval(epoch, total_steps, val_report)
 
-            val_loss = test_report['loss']
-            tensorboard.add_scalar(
-                'validation loss', 
-                test_report["loss"],
-                epoch*total_steps,
-            )
+            val_loss = val_report['loss']
+            tensorboard.add_scalar('val_loss', val_loss, total_steps)
 
-            tensorboard.add_scalar(
-                tag='true positives (val)', 
-                scalar_value=test_report["true_positives"],
-                global_step=epoch*total_steps,
-            )
+            val_f1 = val_report['f1']
+            tensorboard.add_scalar(tag='f1 (val)', scalar_value=val_f1, global_step=total_steps)
 
             tensorboard.add_pr_curve(
-                'precision / recall (val)',
-                labels=torch.tensor(test_report["labels"]),
-                predictions=torch.tensor(test_report["probabilities"]),
-                global_step=epoch*total_steps,
+                'P/R validation',
+                labels=torch.tensor(val_report['labels']),
+                predictions=torch.tensor(val_report['probabilities']),
+                global_step=total_steps,
             )
 
             logger.info('saving model...')
-            save_model(model, epoch, total_steps, val_loss, name=run_name)
+            save_model(
+                model=model, 
+                epoch=epoch, 
+                step=total_steps, 
+                val_loss=val_loss, 
+                val_f1=val_f1, 
+                name=run_name
+            )
             logger.info('model saved')
 
             #if best_val_loss is None:
@@ -236,10 +231,8 @@ def train_step(
     model.train()
 
     batch, labels = batch.to(device), labels.to(device)
-    predictions = torch.squeeze(
-        model(batch), 
-        dim=1 if model.name == UNet.name else 2,
-    )
+    batch = batch[:, :4, :] # remove t-statistic channel
+    predictions = torch.squeeze(model(batch), dim=1 if model.name == UNet.name else 2)
 
     loss, focal, huber, consec = loss_f(batch, predictions, labels)
 
@@ -250,8 +243,6 @@ def train_step(
     optimizer.zero_grad()
     loss.backward()
     optimizer.step()
-
-    #torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
 
     return {
         'loss': loss.item(),

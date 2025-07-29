@@ -19,30 +19,51 @@ def main(args):
 
     # Convert to Python dict for lookup
     borders_map = {
-        rid: borders
-        for rid, borders in zip(borders_series["read_id"], borders_series["borders"])
+        read_id: borders
+        for read_id, borders in zip(borders_series["read_id"], borders_series["borders"])
     }
 
     full_info = []
+
     with p5.Reader(args.pod5) as reader:
-        for r in tqdm(reader.reads(selection=borders_map.keys(), preload="samples")):
-            rid = str(r.read_id)
-            signal = r.signal  # NumPy array
-            borders = borders_map[rid]
-            if borders.is_empty():
-                continue
+
+        reads = reader.reads(
+            selection=borders_map.keys(), 
+            preload="samples",
+        )
+
+        for i, read in enumerate(tqdm(reads)):
+
+            if i == 1000: break
+
+            read_id = str(read.read_id)
+            signal = read.signal  # NumPy array
+            borders = borders_map[read_id]
+
+            if borders.is_empty(): continue
+
             # compute splits
             segments = np.split(signal, borders)[1:]
+
             for st, seg in zip(borders, segments):
-                full_info.append((rid, int(st), len(seg), float(np.mean(seg)), float(np.std(seg))))
+                full_info.append((
+                    read_id, 
+                    int(st), 
+                    len(seg), 
+                    float(np.mean(seg)), 
+                    float(np.std(seg))
+                ))
 
     cols = {
-        'read_id': pl.Categorical, 'event_start': pl.Int32, 'event_len': pl.Int32,
-        'event_mean': pl.Float32, 'event_std': pl.Float32
+        'read_id': pl.Categorical, 
+        'event_start': pl.Int32, 
+        'event_len': pl.Int32,
+        'event_mean': pl.Float32, 
+        'event_std': pl.Float32,
     }
+
     out = pl.DataFrame(full_info, schema=cols, orient="row")
     out.write_csv(args.target)
-
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

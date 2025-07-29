@@ -23,16 +23,23 @@ def load_full_events(csv_path):
     return bord_dict
 
 def get_remora_borders(bam_index, read_id):
-    for a in bam_index.get_alignment(read_id):
-        if a is None:
-            return None
-        remora_borders = np.array(a.get_tag('RR')) + a.get_tag('ts')
-    return remora_borders
 
+    if isinstance(read_id, tuple) and len(read_id) > 0:
+        read_id = read_id[0]
+
+    # TODO wtf
+    read_id = read_id.replace('(', '').replace(')', '').replace("'", '').replace(',', '')
+
+    for a in bam_index.get_alignment(read_id):
+
+        if a is None: return None
+
+        remora_borders = np.array(a.get_tag('RR')) + a.get_tag('ts')
+
+    return remora_borders
 
 def jaccard(tp, fp, fn):
     return tp / (tp + fp + fn)
-
 
 def naive_evaluation(predicted_borders, bam_index):
     # Initialize overall counters
@@ -61,8 +68,6 @@ def naive_evaluation(predicted_borders, bam_index):
         per_read_jaccard.append(jaccard(tp, fp, fn))
 
     print(f'The naive Jaccard similarity is {np.mean(per_read_jaccard)}')
-
-
 
 def find_intersection(remora_borders, predicted_borders):
     count = 0
@@ -116,7 +121,6 @@ def chamfer_distance(x, y, metric='l2', direction='bi'):
     -------
     chamfer_dist: float
         computed bidirectional Chamfer distance:
-            sum_{x_i \in x}{\min_{y_j \in y}{||x_i-y_j||**2}} + sum_{y_j \in y}{\min_{x_i \in x}{||x_i-y_j||**2}}
     """
 
     if direction == 'y_to_x':
@@ -154,7 +158,9 @@ def eval_chamfer(full_events, bam_index):
                                         np.expand_dims(np.array(remora_border_x), 1), metric='l1', direction='bi')
         chamfer_total += chamfer_dist
         num_samples += 1
-    print(f'Bi-directional average chamfer distance: {chamfer_total / num_samples}')
+    try:
+        print(f'Bi-directional average chamfer distance: {chamfer_total / num_samples}')
+    except: pass
 
 def std_evaluation(align_df, restrict_to_matches=False, separate=False):
     align_df = align_df.filter((pl.col('remora_event_mean').is_not_nan()) & (pl.col('event_mean').is_not_nan()))
@@ -183,15 +189,20 @@ def aligned_event_evaluation(align_csv):
     delete_nums = []
     alignment_scores = []
     alignment_len_scores = []
-    align_df = pl.scan_csv(align_csv).collect()
+
+    #align_df = pl.scan_csv(align_csv).collect()
+    align_df = align_csv#.collect()
+
     number_remora_events = len(align_df.select(['remora_start', 'read_id']).unique())
     align_remora_ratio = len(align_df)/number_remora_events
     insertion_df = align_df.filter(pl.col("event_align_status") == 2)
     deletion_df = align_df.filter(pl.col("event_align_status") == 1)
+
     print(f'Ratio between overall number of alignments and number of events is {align_remora_ratio}')
     print(f'Overall match ratio: {len(align_df.filter(pl.col("event_align_status") == 0)) / number_remora_events}')
     print(f'Overall insertion ratio: {len(insertion_df.select(["remora_start", "read_id"]).unique()) / number_remora_events}')
     print(f'Overall deletion ratio: {len(deletion_df.select(["remora_start", "read_id"]).unique()) / number_remora_events}')
+
     for rid, g in align_df.group_by('read_id'):
         g_len = len(g)
         ref_len = len(g['remora_start'].unique())
@@ -206,6 +217,7 @@ def aligned_event_evaluation(align_csv):
         delete_nums.append(len(deletions) / g_len)
         alignment_scores.append(alignment_score_evaluation(len(matches), len(insertions), len(deletions), ref_len))
         alignment_len_scores.append(len_alignment_score_evaluation(match_lens, insertion_lens, deletion_lens))
+
     full_std_eval = std_evaluation(align_df)
     match_std_eval = std_evaluation(align_df, restrict_to_matches=True)
     remora_full_correlation_eval = correlation_evaluation(align_df, restrict_to_matches=False, colid='remora_event_mean')
@@ -220,6 +232,7 @@ def aligned_event_evaluation(align_csv):
 
 def main(args):
     bam_index = get_bam_index(args.bam)
+
     full_events = load_full_events(args.full_events)
 
     naive_evaluation(full_events, bam_index)
@@ -236,4 +249,5 @@ if __name__ == '__main__':
     parser.add_argument('--full_events', type=str, required=True, help="The path to a csv file generated from parquet file with full information on predicted events. The csv file can be constructed from parquet with convert_parquet_for_analysis.py")
     parser.add_argument('--alignments', type=str, required=True, help="The path to aligned predicted and ground truth events obtained by running align_events.py")
 
-    main(parser.parse_args())
+    args = parser.parse_args()
+    main(args)

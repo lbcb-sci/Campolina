@@ -9,13 +9,13 @@ class UNet(nn.Module):
             chan_down: list[int],
             chan_up: list[int],
             kernel: int = 3,
-            dropout: float = 0.1,
+            dropout: float = 0.0,
         ):
         assert len(chan_down) == len(chan_up)
         super().__init__()
 
         self.first = ConvBlock(
-            in_ch=5,
+            in_ch=4,
             out_ch=chan_down[0],
             kernel=kernel,
             dropout=0.0,
@@ -48,7 +48,7 @@ class UNet(nn.Module):
 
     @staticmethod
     def make_default(dropout: float = 0.0):
-        chan = [5, 64, 128, 256, 512]
+        chan = [4, 64, 128, 256, 512]
         return UNet(chan_down=chan, chan_up=list(reversed(chan)), dropout=dropout)
         
     def forward(self, x: Tensor) -> Tensor:
@@ -148,10 +148,13 @@ class ConvBlock(nn.Module):
             in_ch: int, 
             out_ch: int,
             kernel: int,
-            dropout: float = 0.1,
+            dropout: float = 0.0,
         ):
         assert kernel % 2 == 1
         super().__init__()
+
+        self.running_mean = []
+        self.running_var = []
 
         self.block = nn.Sequential(
             nn.Conv1d(
@@ -160,18 +163,24 @@ class ConvBlock(nn.Module):
                 kernel_size=kernel,
                 padding=(kernel - 1) // 2,
             ),
-            nn.GroupNorm(
-                num_groups=min(out_ch, 32),
-                num_channels=out_ch,
-            ),
-            #nn.BatchNorm1d(
-                #num_features=out_ch,
-                #momentum=0.01,
+            #nn.GroupNorm(
+                #num_groups=min(out_ch, 32),
+                #num_channels=out_ch,
             #),
+            nn.BatchNorm1d(num_features=out_ch),
             nn.ReLU(),
             nn.Dropout(dropout),
         )
 
-    def forward(self, x: Tensor) -> Tensor: return self.block(x)
+    def forward(self, x: Tensor) -> Tensor: 
+        out = self.block(x)
+
+        #norm: nn.BatchNorm1d
+        #norm = self.block.get_submodule('1')
+
+        #self.running_mean.append(norm.running_mean.detach().mean().cpu().item())
+        #self.running_var.append(norm.running_var.detach().mean().cpu().item())
+
+        return out
 
     

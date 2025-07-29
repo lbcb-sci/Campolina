@@ -5,3 +5,5 @@ rm -rf models
 rm -rf runs
 rm -rf torchinductor*
 rm -rf .tensorboard-info
+rm -f *.parquet
+rm -f *.csv
