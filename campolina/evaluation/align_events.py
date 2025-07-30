@@ -237,33 +237,31 @@ def align_worker(args):
     tqdm.write(f'starting worker {mp.current_process().name}')
 
     refined_bam, pod5_file, predictions, kmer_model, read_id, writer_path = args
-    alns = refined_bam.get_alignment(read_id)
+    alignment = refined_bam.get_alignment(read_id)
     pod5_reader = p5.Reader(pod5_file)
 
     #for i, a in enumerate(tqdm(alns)):
     # TODO do we still have only one possible alignment
 
-    a = alns
-
     ##start = time.time()
 
-    if a is None: 
-        tqdm.write('is None')
+    if alignment is None: 
+        tqdm.write('alignment is None')
         return
 
-    query_levels, ref_levels, relative_ref_seq_alignment, aligned_seq, ref_seq = remora_kmer_extraction(a, kmer_model)
+    query_levels, ref_levels, relative_ref_seq_alignment, aligned_seq, ref_seq = remora_kmer_extraction(alignment, kmer_model)
 
     #end = time.time()
     #print(f'Remora kmer extraction took: {end - start}')
 
-    remora_borders = np.array(a.get_tag('RR')) + a.get_tag('ts')
+    remora_borders = np.array(alignment.get_tag('RR')) + alignment.get_tag('ts')
     remora_borders = np.unique(remora_borders)
     ref_kmers = [ref_seq[i:i + kmer_model.kmer_len] for i in range(len(ref_seq) - kmer_model.kmer_len + 1)]
 
     #print(f'Remora kmer extraction for read {read_id} done')
 
-    r = next(pod5_reader.reads(selection=[a.query_name]))
-    remora_means = get_remora_means(r.signal, remora_borders)
+    read = next(pod5_reader.reads(selection=[alignment.query_name]))
+    remora_means = get_remora_means(read.signal, remora_borders)
 
     prediction_borders = np.array(
         predictions
