@@ -17,20 +17,20 @@ def train(scope: dict, run_name: str = 'model') -> None:
     device = scope['devices'][0]
     logger = logging.getLogger('train'); logger.setLevel(logging.INFO)
 
-    #logger.info('initializing model...')
-    #model = EventDetector(
-        #in_channels=scope['in_channels'], 
-        #out_channels=scope['out_channels'], 
-        #classification_head=scope['classification_head'], 
-        #kernel_size_one=scope['kernel_one'], 
-        #kernel_size_all=scope['kernel_all'],
-        #dilation=scope['dilation'],
-    #).to(device)
-    #print(model)
-
     logger.info('initializing model...')
-    model = UNet.make_default().to(device)
+    model = EventDetector(
+        in_channels=scope['in_channels'], 
+        out_channels=scope['out_channels'], 
+        classification_head=scope['classification_head'], 
+        kernel_size_one=scope['kernel_one'], 
+        kernel_size_all=scope['kernel_all'],
+        dilations=scope['dilations'],
+    ).to(device)
     print(model)
+
+    #logger.info('initializing model...')
+    #model = UNet.make_default().to(device)
+    #print(model)
 
     logger.info(f'model #parameters = {count_params(model)}')
 

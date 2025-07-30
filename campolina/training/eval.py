@@ -72,6 +72,7 @@ def eval_model(
             process.terminate()
 
     logger.info('computing metrics...')
+    # TODO compute metrics on gpu 
 
     probabilities = np.array(full_probabilities)
     labels = np.array(full_labels)

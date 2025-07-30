@@ -34,7 +34,7 @@ def main(args):
 
         for i, read in enumerate(tqdm(reads)):
 
-            if i == 1000: break
+            if i == 100: break
 
             read_id = str(read.read_id)
             signal = read.signal  # NumPy array
