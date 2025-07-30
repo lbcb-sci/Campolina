@@ -1,7 +1,6 @@
 import numpy as np
-
 from itertools import product
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from tqdm import tqdm
 from scipy import stats
 
@@ -12,7 +11,6 @@ SEQ_TO_INT_ARR[0] = 0
 SEQ_TO_INT_ARR[2] = 1
 SEQ_TO_INT_ARR[6] = 2
 SEQ_TO_INT_ARR[19] = 3
-
 
 def seq_to_int(seq):
     """Convert string sequence to integer encoded array
@@ -26,7 +24,6 @@ def seq_to_int(seq):
     return SEQ_TO_INT_ARR[
         np.array(list(seq), dtype="c").view(np.uint8) - SEQ_MIN
     ]
-
 
 def int_to_seq(np_seq, alphabet=CONV_ALPHABET):
     """Convert integer encoded array to string sequence
@@ -42,7 +39,6 @@ def int_to_seq(np_seq, alphabet=CONV_ALPHABET):
     if np_seq.max() >= len(alphabet):
         tqdm.write(f"Invalid value in int sequence ({np_seq.max()})")
     return "".join(alphabet[b] for b in np_seq)
-
 
 def index_from_kmer(kmer, alphabet="ACGT"):
     """Encode string k-mer as integer via len(alphabet)-bit encoding.
@@ -68,7 +64,6 @@ def index_from_int_kmer(int_kmer, kmer_len):
     for kmer_pos in range(kmer_len):
         idx += int_kmer[kmer_len - kmer_pos - 1]*(4**kmer_pos)
     return idx
-
 
 def extract_levels(int_seq, int_kmer_levels, kmer_len, center_idx):
     levels = np.zeros(int_seq.shape[0], dtype=np.float32)
@@ -198,7 +193,6 @@ class kmerModel:
         elif self.str_kmer_levels is not None:
             self.is_loaded = True
             self.determine_dominant_pos()
-
 
     def extract_levels(self, int_seq):
         return extract_levels(

@@ -1,18 +1,11 @@
 import argparse
-
 import os
 import pysam
 import polars as pl
 import numpy as np
-
 from scipy.stats import pearsonr
-
 from sklearn.neighbors import NearestNeighbors
-
-from bam_utils import BamIndex
-
-def get_bam_index(bam_path):
-    return BamIndex(bam_path)
+from campolina.data import BamIndex
 
 def load_full_events(csv_path):
     df = pl.scan_csv(csv_path).collect()
@@ -30,11 +23,12 @@ def get_remora_borders(bam_index, read_id):
     # TODO wtf
     read_id = read_id.replace('(', '').replace(')', '').replace("'", '').replace(',', '')
 
-    for a in bam_index.get_alignment(read_id):
+    #for a in bam_index.get_alignment(read_id):
+    a = bam_index.get_alignment(read_id)
 
-        if a is None: return None
+    if a is None: return None
 
-        remora_borders = np.array(a.get_tag('RR')) + a.get_tag('ts')
+    remora_borders = np.array(a.get_tag('RR')) + a.get_tag('ts')
 
     return remora_borders
 
@@ -67,7 +61,7 @@ def naive_evaluation(predicted_borders, bam_index):
 
         per_read_jaccard.append(jaccard(tp, fp, fn))
 
-    print(f'The naive Jaccard similarity is {np.mean(per_read_jaccard)}')
+    print(f'The naive Jaccard similarity is {np.mean(per_read_jaccard):.2f}')
 
 def find_intersection(remora_borders, predicted_borders):
     count = 0
@@ -159,7 +153,7 @@ def eval_chamfer(full_events, bam_index):
         chamfer_total += chamfer_dist
         num_samples += 1
     try:
-        print(f'Bi-directional average chamfer distance: {chamfer_total / num_samples}')
+        print(f'Bi-directional average chamfer distance: {chamfer_total / num_samples:.2f}')
     except: pass
 
 def std_evaluation(align_df, restrict_to_matches=False, separate=False):
@@ -198,10 +192,10 @@ def aligned_event_evaluation(align_csv):
     insertion_df = align_df.filter(pl.col("event_align_status") == 2)
     deletion_df = align_df.filter(pl.col("event_align_status") == 1)
 
-    print(f'Ratio between overall number of alignments and number of events is {align_remora_ratio}')
-    print(f'Overall match ratio: {len(align_df.filter(pl.col("event_align_status") == 0)) / number_remora_events}')
-    print(f'Overall insertion ratio: {len(insertion_df.select(["remora_start", "read_id"]).unique()) / number_remora_events}')
-    print(f'Overall deletion ratio: {len(deletion_df.select(["remora_start", "read_id"]).unique()) / number_remora_events}')
+    print(f'Ratio between overall number of alignments and number of events is {align_remora_ratio:.2f}')
+    print(f'Overall match ratio: {len(align_df.filter(pl.col("event_align_status") == 0)) / number_remora_events:.2f}')
+    print(f'Overall insertion ratio: {len(insertion_df.select(["remora_start", "read_id"]).unique()) / number_remora_events:.2f}')
+    print(f'Overall deletion ratio: {len(deletion_df.select(["remora_start", "read_id"]).unique()) / number_remora_events:.2f}')
 
     for rid, g in align_df.group_by('read_id'):
         g_len = len(g)
@@ -225,13 +219,13 @@ def aligned_event_evaluation(align_csv):
     full_correlation_eval = correlation_evaluation(align_df, restrict_to_matches=False, colid='ref_kmer_level')
     match_correlation_eval = correlation_evaluation(align_df, restrict_to_matches=True, colid='ref_kmer_level')
     #print(f'Average alignment score: {np.mean(alignment_scores)}')
-    print(f'Average length-weighted alignment score: {np.mean(alignment_len_scores)}')
-    print(f'L2 distance for full alignment is {full_std_eval}, for match only {match_std_eval}')
+    print(f'Average length-weighted alignment score: {np.mean(alignment_len_scores):.2f}')
+    print(f'L2 distance for full alignment is {full_std_eval:.2f}, for match only {match_std_eval:.2f}')
     #print(f'Pearson r for full alignment to remora is {remora_full_correlation_eval}, for match only {remora_match_correlation_eval}')
     print(f'Pearson r for full alignment is {full_correlation_eval}, for match only {match_correlation_eval}')
 
 def main(args):
-    bam_index = get_bam_index(args.bam)
+    bam_index = BamIndex(args.bam, use_cached=False)
 
     full_events = load_full_events(args.full_events)
 
@@ -243,11 +237,15 @@ def main(args):
 
     aligned_event_evaluation(alndf)
 
+DEFAULT_BAM  = '/mnt/sod2-project/csb4/wgs/metagenomics_data/projects/segmentation/segmentation_data/R10_Zymo_subsample/barcode24_zymo_wo_EC_1k_per_species_min_len_1k/refined_R10_zymo_wo_EC_segmenteval_subset.bam'
+DEFAULT_POD5 = '/mnt/sod2-project/csb4/wgs/metagenomics_data/projects/segmentation/segmentation_data/R10_Zymo_subsample/barcode24_zymo_wo_EC_1k_per_species_min_len_1k/barcode24_zymo_subsampled_wo_EC_min_len_1k.pod5'
+DEFAULT_KMER = 'campolina/groundtruth/9mers_levels_R10_4_1_400bps.txt'
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--bam', type=str, required=True, help="The path to the .bam file containing refined event borders stored under RR tag. This can be constructed following the ground truth pipeline")
-    parser.add_argument('--full_events', type=str, required=True, help="The path to a csv file generated from parquet file with full information on predicted events. The csv file can be constructed from parquet with convert_parquet_for_analysis.py")
-    parser.add_argument('--alignments', type=str, required=True, help="The path to aligned predicted and ground truth events obtained by running align_events.py")
+    parser.add_argument('--bam', type=str, default=DEFAULT_BAM, help="The path to the .bam file containing refined event borders stored under RR tag. This can be constructed following the ground truth pipeline")
+    parser.add_argument('--full_events', type=str, default='full_info.csv', help="The path to a csv file generated from parquet file with full information on predicted events. The csv file can be constructed from parquet with convert_parquet_for_analysis.py")
+    parser.add_argument('--alignments', type=str, default='alignments.csv', help="The path to aligned predicted and ground truth events obtained by running align_events.py")
 
     args = parser.parse_args()
     main(args)

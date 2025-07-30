@@ -1,17 +1,19 @@
 import logging
-from dataclasses import dataclass
+import pickle
 from collections import defaultdict
 from typing import Optional
 from pysam import AlignedSegment, AlignmentFile
-import pickle
 
-@dataclass
 class BamIndex:
-    '''
-    A mapping from (read id -> pointer to aligned segment).
-    '''
-    bam_path: str
+    '''A mapping (read id -> pointer to aligned segment).'''
+
     logger: logging.Logger = logging.getLogger('bam_index')
+
+    def __init__(self, bam_path: str, use_cached: bool = True):
+        self.bam_path = bam_path
+        self.logger = logging.getLogger('bam_index')
+        self.use_cached = use_cached
+        self.__post_init__()
 
     def __post_init__(self) -> None:
         self.bam_file: AlignmentFile = None
@@ -27,17 +29,17 @@ class BamIndex:
         self.bam_file = None
 
     def build_index(self) -> None:
-        try: # load from disk if possible 
-            with open(f'./bam_cache.pkl', 'rb') as f: 
-                self.logger.info('loading cached BAM file...')
-                self.bam_idx = pickle.load(f)
-                self.logger.info('loading cached BAM file done.')
-            return 
-        except: pass
+        if self.use_cached:
+            try: # load from disk if possible 
+                with open(f'./bam_cache.pkl', 'rb') as f: 
+                    self.logger.info('loading cached BAM file...')
+                    self.bam_idx = pickle.load(f)
+                    self.logger.info('loading cached BAM file done.')
+                return 
+            except: pass
 
         if self.bam_file is None: self.open_bam()
 
-        #self.bam_idx = defaultdict(list)
         self.bam_idx = defaultdict(int)
         self.logger.info('cached index not found -- indexing BAM file by read ids...')
 
@@ -53,7 +55,6 @@ class BamIndex:
             if read.is_supplementary or read.is_secondary or read_id in self.bam_idx: continue
 
             self.num_recs += 1
-            #self.bam_idx[read_id].append(read_ptr)
             self.bam_idx[read_id] = read_ptr
 
         self.close_bam()
@@ -61,9 +62,10 @@ class BamIndex:
         self.num_reads = len(self.bam_idx.keys())
         self.logger.info(f'number of reads: {self.num_reads}')
 
-        with open(f'./bam_cache.pkl', 'xb') as f: # write to disk
-            pickle.dump(self.bam_idx, f)
-            self.logger.info(f'cached BAM index: bam_cache.pkl')
+        if self.use_cached:
+            with open(f'./bam_cache.pkl', 'xb') as f: # write to disk
+                pickle.dump(self.bam_idx, f)
+                self.logger.info(f'cached BAM index: bam_cache.pkl')
 
     def get_alignment(self, read_id: str) -> Optional[AlignedSegment]:
         if self.bam_file is None: self.open_bam()

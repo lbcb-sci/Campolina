@@ -3,12 +3,13 @@ import argparse
 import re
 import polars as pl
 import numpy as np
-from tqdm import tqdm
-from bam_utils import BamIndex
-from kmer_model_utils import *
 import multiprocessing as mp
 import pod5 as p5
 from Bio import Seq
+from tqdm import tqdm
+
+from .kmer_model_utils import seq_to_int, kmerModel
+from ..data import BamIndex
 
 pl.enable_string_cache()
 pl.Config.set_fmt_str_lengths(38)
@@ -144,7 +145,7 @@ def solve_pair_alignment(args):
     remora_start, remora_end = remora_borders[remora_idx], remora_borders[remora_idx+1]
 
     if remora_idx >= len(ref_kmers):
-        print(f'Read {read_id}, with {len(ref_kmers)} kmers, trying for index {remora_idx}')
+        print(f'Read {read_id}, with {len(ref_kmers)} kmers, trying for index {remora_idx}', flush=True)
 
     kmer_level = ref_levels[remora_idx]
     basecalled_kmer = ref_kmers[remora_idx - kmer_model.bases_before]
@@ -189,38 +190,41 @@ def merge_csvs(src, tgt_dir, filename_description, delete_src=True):
                 os.remove(path)
 
 def align_worker(args):
-    refined_bam, pod5_file, predictions, kmer_model, full_kmer_info, read_id, writer_path = args
+    refined_bam, pod5_file, predictions, kmer_model, read_id, writer_path = args
     tqdm.write(f'starting worker {mp.current_process().name}')
     #predictions = pl.scan_csv(predictions_path).collect()
     alns = refined_bam.get_alignment(read_id)
     pod5_reader = p5.Reader(pod5_file)
 
-    for i, a in enumerate(tqdm(alns)):
+    #for i, a in enumerate(tqdm(alns)):
+    # TODO do we still have only one possible alignment
 
-        tqdm.write(f'alignment {i}')
+        #tqdm.write(f'alignment {i}')
 
-        ##start = time.time()
-        #if read_id == 'd9fccbda-4c05-4f4e-97b7-40757f8f4a3f':
-            #print(read_id, a)
+    a = alns
 
-        if a is None: 
-            tqdm.write('is None')
-            return
+    ##start = time.time()
+    #if read_id == 'd9fccbda-4c05-4f4e-97b7-40757f8f4a3f':
+        #print(read_id, a)
 
-        query_levels, ref_levels, relative_ref_seq_alignment, aligned_seq, ref_seq = remora_kmer_extraction(a, kmer_model)
+    if a is None: 
+        tqdm.write('is None')
+        return
 
-        #end = time.time()
-        #print(f'Remora kmer extraction took: {end - start}')
+    query_levels, ref_levels, relative_ref_seq_alignment, aligned_seq, ref_seq = remora_kmer_extraction(a, kmer_model)
 
-        remora_borders = np.array(a.get_tag('RR')) + a.get_tag('ts')
-        remora_borders = np.unique(remora_borders)
-        ref_kmers = [ref_seq[i:i + kmer_model.kmer_len] for i in range(len(ref_seq) - kmer_model.kmer_len + 1)]
+    #end = time.time()
+    #print(f'Remora kmer extraction took: {end - start}')
 
-        #print(f'Remora kmer extraction for read {read_id} done')
+    remora_borders = np.array(a.get_tag('RR')) + a.get_tag('ts')
+    remora_borders = np.unique(remora_borders)
+    ref_kmers = [ref_seq[i:i + kmer_model.kmer_len] for i in range(len(ref_seq) - kmer_model.kmer_len + 1)]
 
-        for i, r in enumerate(pod5_reader.reads(selection=[a.query_name])):
-            tqdm.write(f'- read {i}')
-            remora_means = get_remora_means(r.signal, remora_borders)
+    #print(f'Remora kmer extraction for read {read_id} done')
+
+    for i, r in enumerate(pod5_reader.reads(selection=[a.query_name])):
+        #tqdm.write(f'- read {i}')
+        remora_means = get_remora_means(r.signal, remora_borders)
 
     prediction_borders = np.array(
         predictions.filter((pl.col('read_id') == read_id)).select('event_start').collect()['event_start'].to_list()
@@ -243,13 +247,15 @@ def align_worker(args):
     event_kmer_alignment = get_event_kmer_alignment(read_id, event_means, prediction_borders, remora_means, remora_borders, aligned_pairs, list(match_query.keys()),
                              list(deletion.keys()), ref_levels, ref_kmers, kmer_model)
     event_kmer_alignment = event_kmer_alignment.with_columns(read_id=pl.lit(read_id).cast(pl.Categorical))
-    full_kmer_info = pl.concat([full_kmer_info, event_kmer_alignment])
+    event_kmer_alignment.collect().write_csv(writer_path)
 
-    full_kmer_info.collect().write_csv(writer_path)
+    #full_kmer_info = pl.concat([full_kmer_info, event_kmer_alignment])
+    #full_kmer_info.collect().write_csv(writer_path)
+    tqdm.write(f'worker {mp.current_process().name} finished.')
 
 def main(args):
     kmer_model = kmerModel(kmer_model_filename=args.kmer_model)
-    refined_bam = BamIndex(args.remora_bam)
+    refined_bam = BamIndex(args.remora_bam, use_cached=False)
 
     predictions = pl.scan_csv(args.predictions)
     read_ids = sorted(predictions.select(pl.col('read_id')).unique().collect()['read_id'].to_list())
@@ -278,26 +284,37 @@ def main(args):
     writers_path = [f'{args.tgt_dir}/{args.filename_description}_{i}.csv' for i in range(len(read_ids))]
 
     with mp.get_context("spawn").Pool(args.workers) as pool, tqdm(total=len(read_ids)) as pbar:
+        worker_args = [(
+                refined_bam, 
+                args.pod5_file, 
+                predictions, 
+                kmer_model, 
+                read_id, 
+                writers_path[i]
+            ) for i, read_id in enumerate(read_ids)
+        ]
 
-        worker_args = [(refined_bam, args.pod5_file, predictions, kmer_model, full_kmer_info, r, writers_path[i]) for i, r in
-                enumerate(read_ids)]
-
-        for _ in pool.imap_unordered(align_worker, worker_args): pbar.update(1)
+        jobs = pool.imap_unordered(align_worker, worker_args)
+        for completed in jobs: pbar.update(1)
 
     tqdm.write('Merging csv files')
-    merge_csvs(writers_path, args.tgt_dir, args.filename_description, args.delete_src)
+    merge_csvs(writers_path, args.tgt_dir, args.filename_description, True)
 
-if __name__ == '__main__':
+DEFAULT_BAM  = '/mnt/sod2-project/csb4/wgs/metagenomics_data/projects/segmentation/segmentation_data/R10_Zymo_subsample/barcode24_zymo_wo_EC_1k_per_species_min_len_1k/refined_R10_zymo_wo_EC_segmenteval_subset.bam'
+DEFAULT_POD5 = '/mnt/sod2-project/csb4/wgs/metagenomics_data/projects/segmentation/segmentation_data/R10_Zymo_subsample/barcode24_zymo_wo_EC_1k_per_species_min_len_1k/barcode24_zymo_subsampled_wo_EC_min_len_1k.pod5'
+DEFAULT_KMER = 'campolina/groundtruth/9mers_levels_R10_4_1_400bps.txt'
+
+def make_argparser():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--remora_bam', default='/home/bakics/scratch/Campolina_paper/segmenteval/R10_zymo_segmenteval_subset/refined_R10_zymo_segmenteval_subset.bam', help='The path to the .bam file containing refined event borders stored under RR tag. This can be constructed following the ground truth pipeline')
-    parser.add_argument('--predictions', default='/home/bakics/scratch/Campolina_paper/segmenteval/R10_zymo_segmenteval_subset/R10_Zymo_segmenteval_14112024_Focal_alpha0_8_gamma1_alpha5000_beta0_05_eta10_5channel_final2048_400bps_events_new.csv', help='The path to a csv file generated from parquet file with full information on predicted events. The csv file can be constructed from parquet with convert_parquet_for_analysis.py')
-    parser.add_argument('--pod5_file', default='/home/bakics/scratch/Campolina_paper/segmenteval/R10_zymo_segmenteval_subset/R10_zymo_segmenteval_subset.pod5', help='Path to .pod5 with the corresponding signals')
-    #parser.add_argument('--read_ids', default=['af83f8de-ce0e-4ed1-9e75-605304a5f74d'], nargs='+')
-    parser.add_argument('--kmer_model', default='/home/bakics/remora_analysis/9mer_levels_v1_400bps.txt', help='The path to the corresponding k-mer model file in R10 format')
-    parser.add_argument('--filename_description', default='005665c5-7b3f-44c8-989e-d0e23af14b23', help='The prefix of the final output file')
+    parser.add_argument('--remora_bam', default=DEFAULT_BAM, help='The path to the .bam file containing refined event borders stored under RR tag. This can be constructed following the ground truth pipeline')
+    parser.add_argument('--predictions', default='full_info.csv', help='The path to a csv file generated from parquet file with full information on predicted events. The csv file can be constructed from parquet with convert_parquet_for_analysis.py')
+    parser.add_argument('--pod5_file', default=DEFAULT_POD5, help='Path to .pod5 with the corresponding signals')
+    parser.add_argument('--kmer_model', default=DEFAULT_KMER, help='The path to the corresponding k-mer model file in R10 format')
+    parser.add_argument('--filename_description', default='alignments', help='The prefix of the final output file')
     parser.add_argument('--tgt_dir', default='./')
     parser.add_argument('--workers', type=int, default=1)
     parser.add_argument('--delete_src', action='store_true')
+    return parser
 
-    args = parser.parse_args()
-    main(args)
+if __name__ == '__main__':
+    main(make_argparser().parse_args())
