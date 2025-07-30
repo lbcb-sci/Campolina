@@ -23,6 +23,7 @@ def convert_reverse_mapping(aligned_pairs, ref_seq, query_len, ref_len):
     """
     ref_seq = str(Seq.Seq(ref_seq).reverse_complement())
     converted_pairs = []
+
     for i, j in aligned_pairs:
         ii = ref_len - i - 1 if i is not None else None
         jj = query_len - j - 1 if j is not None else None
@@ -32,13 +33,20 @@ def convert_reverse_mapping(aligned_pairs, ref_seq, query_len, ref_len):
     return converted_pairs, ref_seq
 
 def adjust_borders(borders, ref_seq, ref_kmers, ref_levels):
-    problematic_kmers = ['AAA', 'AAG', 'ATT', 'AGA', 'AGG', 'TAC', 'TTT', 'CAA', 'CAG', 'CTT', 'CCC', 'CGA', 'CGG',
-                         'GAG', 'GTT', 'GGA', 'GGG']
+    problematic_kmers = [
+        'AAA', 'AAG', 'ATT', 'AGA', 'AGG', 'TAC', 'TTT', 'CAA', 
+        'CAG', 'CTT', 'CCC', 'CGA', 'CGG', 'GAG', 'GTT', 'GGA', 'GGG',
+    ]
+
     problematic_kmers_regex = '|'.join(problematic_kmers)
+
     border_shift = 5
-    # ref_3mers = [ref_seq[i:i+3] for i in range(border_shift, len(ref_seq) - 3)]
-    problematic_kmers_border_indices = [m.start() + 2 for m in re.finditer(f'(?=({problematic_kmers_regex}))', ref_seq)
-                                        if ((m.start() >= border_shift) & (m.start() < (len(ref_seq) - 3 - 1)))]
+
+    problematic_kmers_border_indices = [
+        m.start() + 2 
+        for m in re.finditer(f'(?=({problematic_kmers_regex}))', ref_seq)
+        if ((m.start() >= border_shift) & (m.start() < (len(ref_seq) - 3 - 1)))
+    ]
 
     problematic_kmers_indices = np.array(problematic_kmers_border_indices) - border_shift - 1
     problematic_levels_indices = np.array(problematic_kmers_border_indices)
@@ -94,8 +102,12 @@ def create_matrix(remora_borders, prediction_borders):
     min_lengths = np.minimum(remora_lens_ravel, prediction_lens_ravel)
     min_lengths = np.reshape(min_lengths, (len(remora_borders), len(prediction_borders)))
 
-    remora_pred_matrix = np.divide(intersection_counts, min_lengths, out=np.zeros_like(intersection_counts),
-                                   where=min_lengths != 0)
+    remora_pred_matrix = np.divide(
+        intersection_counts, 
+        min_lengths, 
+        out=np.zeros_like(intersection_counts),
+        where=min_lengths != 0,
+    )
 
     nonzero_indices = np.argwhere(remora_pred_matrix > 0)
     if len(nonzero_indices) > 0: corner_x, corner_y = nonzero_indices[-1]
@@ -149,8 +161,6 @@ def solve_pair_alignment(args):
 
     kmer_level = ref_levels[remora_idx]
     basecalled_kmer = ref_kmers[remora_idx - kmer_model.bases_before]
-    #basecalled_kmer = ref_seq[
-    #                  remora_idx - kmer_model.bases_before: remora_idx + kmer_model.kmer_len - kmer_model.bases_before].upper()
     event_mean = event_means[our_idx]
     remora_mean = remora_means[remora_idx]
     event_align_status = 0 if our_idx in match_ids else (1 if our_idx in deletion_ids else 2)
@@ -158,24 +168,57 @@ def solve_pair_alignment(args):
     level_diffs = levels - event_mean
     nearest_kmer_level = levels[np.argmin(np.abs(level_diffs))]
     nearest_kmer = tmp_kmer_inverse[nearest_kmer_level]
-    return (event_start, event_end, event_mean, remora_start, remora_end, remora_mean, kmer_level, basecalled_kmer, nearest_kmer, event_align_status)
+    return (
+        event_start, 
+        event_end, 
+        event_mean, 
+        remora_start, 
+        remora_end, 
+        remora_mean, 
+        kmer_level, 
+        basecalled_kmer, 
+        nearest_kmer, 
+        event_align_status
+    )
 
 def get_event_kmer_alignment(read_id, event_means, prediction_borders, remora_means, remora_borders, prediction_remora_alignment, match_ids, deletion_ids, ref_levels, ref_seq, kmer_model):
     tmp_kmer_inverse = dict((v, k) for k, v in kmer_model.str_kmer_levels.items())
     event_details = []
     for our_idx, remora_idx in prediction_remora_alignment:
         try:
-            alignment = solve_pair_alignment((read_id, our_idx, remora_idx, ref_levels, kmer_model, ref_seq, prediction_borders, remora_borders, tmp_kmer_inverse, event_means, remora_means,
-                match_ids, deletion_ids))
+            alignment = solve_pair_alignment((
+                read_id, 
+                our_idx, 
+                remora_idx, 
+                ref_levels, 
+                kmer_model, 
+                ref_seq, 
+                prediction_borders, 
+                remora_borders, 
+                tmp_kmer_inverse, 
+                event_means, 
+                remora_means,
+                match_ids, 
+                deletion_ids,
+            ))
         except: alignment = None
 
         if alignment is not None: event_details.append(alignment)
 
-    schema = {'event_start': pl.Int32, 'event_end': pl.Int32, 'event_mean': pl.Float32, 'remora_start': pl.Int32, 'remora_end': pl.Int32, 'remora_event_mean': pl.Float32, 'ref_kmer_level': pl.Float32,
-              'ref_kmer': pl.Categorical, 'nearest_table_kmer': pl.Categorical, 'event_align_status': pl.Categorical}
+    schema = {
+        'event_start': pl.Int32, 
+        'event_end': pl.Int32, 
+        'event_mean': pl.Float32, 
+        'remora_start': pl.Int32, 
+        'remora_end': pl.Int32, 
+        'remora_event_mean': pl.Float32, 
+        'ref_kmer_level': pl.Float32,
+        'ref_kmer': pl.Categorical, 
+        'nearest_table_kmer': pl.Categorical, 
+        'event_align_status': pl.Categorical,
+    }
 
-    event_details = pl.LazyFrame(event_details, schema=schema, orient='row')
-    return event_details
+    return pl.LazyFrame(event_details, schema=schema, orient='row')
 
 def get_remora_means(signal, remora_borders):
     event_means = np.array([np.mean(signal[remora_borders[i]:remora_borders[i+1]]) for i in range(len(remora_borders) - 1)])
@@ -184,28 +227,25 @@ def get_remora_means(signal, remora_borders):
 def merge_csvs(src, tgt_dir, filename_description, delete_src=True):
     full_frame = pl.concat([pl.scan_csv(writer_outf) for writer_outf in src if os.path.exists(writer_outf)])
     full_frame.collect().write_csv(f'{tgt_dir}/{filename_description}.csv')
-    if delete_src:
-        for path in src:
-            if os.path.exists(path):
-                os.remove(path)
+
+    if not delete_src: return 
+
+    for path in src:
+        if os.path.exists(path): os.remove(path)
 
 def align_worker(args):
-    refined_bam, pod5_file, predictions, kmer_model, read_id, writer_path = args
     tqdm.write(f'starting worker {mp.current_process().name}')
-    #predictions = pl.scan_csv(predictions_path).collect()
+
+    refined_bam, pod5_file, predictions, kmer_model, read_id, writer_path = args
     alns = refined_bam.get_alignment(read_id)
     pod5_reader = p5.Reader(pod5_file)
 
     #for i, a in enumerate(tqdm(alns)):
     # TODO do we still have only one possible alignment
 
-        #tqdm.write(f'alignment {i}')
-
     a = alns
 
     ##start = time.time()
-    #if read_id == 'd9fccbda-4c05-4f4e-97b7-40757f8f4a3f':
-        #print(read_id, a)
 
     if a is None: 
         tqdm.write('is None')
@@ -222,12 +262,15 @@ def align_worker(args):
 
     #print(f'Remora kmer extraction for read {read_id} done')
 
-    for i, r in enumerate(pod5_reader.reads(selection=[a.query_name])):
-        #tqdm.write(f'- read {i}')
-        remora_means = get_remora_means(r.signal, remora_borders)
+    r = next(pod5_reader.reads(selection=[a.query_name]))
+    remora_means = get_remora_means(r.signal, remora_borders)
 
     prediction_borders = np.array(
-        predictions.filter((pl.col('read_id') == read_id)).select('event_start').collect()['event_start'].to_list()
+        predictions
+            .filter((pl.col('read_id') == read_id))
+            .select('event_start')
+            .collect()['event_start']
+            .to_list()
     )
 
     expanded_remora_borders = expand_borders(remora_borders)
@@ -240,65 +283,61 @@ def align_worker(args):
     aligned_pairs, match_query, match_ref, insertion, deletion = traceback(align_matrix2, corner_x2, corner_y2)
 
     event_means = np.array(
-        predictions.filter((pl.col('read_id') == read_id) & (pl.col('event_start') <= prediction_borders[aligned_pairs[-1][0]])).select('event_mean').collect()['event_mean'].to_list()
+        predictions
+            .filter(
+                (pl.col('read_id') == read_id) & 
+                (pl.col('event_start') <= prediction_borders[aligned_pairs[-1][0]]))
+            .select('event_mean')
+            .collect()['event_mean']
+            .to_list()
     )
+
     event_means = (event_means - np.mean(event_means)) / np.std(event_means)
 
-    event_kmer_alignment = get_event_kmer_alignment(read_id, event_means, prediction_borders, remora_means, remora_borders, aligned_pairs, list(match_query.keys()),
-                             list(deletion.keys()), ref_levels, ref_kmers, kmer_model)
+    event_kmer_alignment = get_event_kmer_alignment(
+        read_id, 
+        event_means, 
+        prediction_borders, 
+        remora_means, 
+        remora_borders, 
+        aligned_pairs, 
+        list(match_query.keys()),
+        list(deletion.keys()), 
+        ref_levels, 
+        ref_kmers, 
+        kmer_model,
+    )
+
     event_kmer_alignment = event_kmer_alignment.with_columns(read_id=pl.lit(read_id).cast(pl.Categorical))
     event_kmer_alignment.collect().write_csv(writer_path)
-
-    #full_kmer_info = pl.concat([full_kmer_info, event_kmer_alignment])
-    #full_kmer_info.collect().write_csv(writer_path)
     tqdm.write(f'worker {mp.current_process().name} finished.')
 
 def main(args):
-    kmer_model = kmerModel(kmer_model_filename=args.kmer_model)
-    refined_bam = BamIndex(args.remora_bam, use_cached=False)
-
-    predictions = pl.scan_csv(args.predictions)
-    read_ids = sorted(predictions.select(pl.col('read_id')).unique().collect()['read_id'].to_list())
-
-    schema = {
-        'event_start': pl.Int32, 
-        'event_end': pl.Int32, 
-        'event_mean': pl.Float32, 
-        'remora_start': pl.Int32,
-        'remora_end': pl.Int32, 
-        'remora_event_mean': pl.Float32, 
-        'ref_kmer_level': pl.Float32, 
-        'ref_kmer': pl.Categorical,
-        'nearest_table_kmer': pl.Categorical, 
-        'event_align_status': pl.Categorical, 
-        'read_id': pl.Categorical
-    }
-
-    full_kmer_info = pl.LazyFrame(schema=schema)
-
-    if args.workers == 1:
-        args = (refined_bam, args.pod5_file, predictions, kmer_model, full_kmer_info, read_ids[0], f'{args.tgt_dir}/{args.filename_description}.csv')
-        align_worker(args)
-        exit(0)
-
+    kmer_model   = kmerModel(kmer_model_filename=args.kmer_model)
+    refined_bam  = BamIndex(args.remora_bam, use_cached=False)
+    predictions  = pl.scan_csv(args.predictions)
+    read_ids     = sorted(predictions.select(pl.col('read_id')).unique().collect()['read_id'].to_list())
     writers_path = [f'{args.tgt_dir}/{args.filename_description}_{i}.csv' for i in range(len(read_ids))]
 
-    with mp.get_context("spawn").Pool(args.workers) as pool, tqdm(total=len(read_ids)) as pbar:
+    with (
+        mp.get_context("spawn").Pool(args.workers) as pool, 
+        tqdm(total=len(read_ids)) as pbar
+    ):
         worker_args = [(
-                refined_bam, 
-                args.pod5_file, 
-                predictions, 
-                kmer_model, 
-                read_id, 
-                writers_path[i]
-            ) for i, read_id in enumerate(read_ids)
-        ]
+            refined_bam, 
+            args.pod5_file, 
+            predictions, 
+            kmer_model, 
+            read_id, 
+            writers_path[i]
+        ) for i, read_id in enumerate(read_ids)]
 
         jobs = pool.imap_unordered(align_worker, worker_args)
         for completed in jobs: pbar.update(1)
 
-    tqdm.write('Merging csv files')
+    tqdm.write('merging csv files...')
     merge_csvs(writers_path, args.tgt_dir, args.filename_description, True)
+    tqdm.write('execution completed.')
 
 DEFAULT_BAM  = '/mnt/sod2-project/csb4/wgs/metagenomics_data/projects/segmentation/segmentation_data/R10_Zymo_subsample/barcode24_zymo_wo_EC_1k_per_species_min_len_1k/refined_R10_zymo_wo_EC_segmenteval_subset.bam'
 DEFAULT_POD5 = '/mnt/sod2-project/csb4/wgs/metagenomics_data/projects/segmentation/segmentation_data/R10_Zymo_subsample/barcode24_zymo_wo_EC_1k_per_species_min_len_1k/barcode24_zymo_subsampled_wo_EC_min_len_1k.pod5'

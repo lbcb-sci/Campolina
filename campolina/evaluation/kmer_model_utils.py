@@ -5,7 +5,9 @@ from tqdm import tqdm
 from scipy import stats
 
 CONV_ALPHABET = "ACGTN"
+
 SEQ_MIN = np.array(["A"], dtype="S1").view(np.uint8)[0]
+
 SEQ_TO_INT_ARR = np.full(26, -1, dtype=int)
 SEQ_TO_INT_ARR[0] = 0
 SEQ_TO_INT_ARR[2] = 1
@@ -21,9 +23,7 @@ def seq_to_int(seq):
     Returns:
         np.array containing integer encoded sequence
     """
-    return SEQ_TO_INT_ARR[
-        np.array(list(seq), dtype="c").view(np.uint8) - SEQ_MIN
-    ]
+    return SEQ_TO_INT_ARR[np.array(list(seq), dtype="c").view(np.uint8) - SEQ_MIN]
 
 def int_to_seq(np_seq, alphabet=CONV_ALPHABET):
     """Convert integer encoded array to string sequence
@@ -34,10 +34,8 @@ def int_to_seq(np_seq, alphabet=CONV_ALPHABET):
     Returns:
         String nucleotide sequence
     """
-    if np_seq.shape[0] == 0:
-        return ""
-    if np_seq.max() >= len(alphabet):
-        tqdm.write(f"Invalid value in int sequence ({np_seq.max()})")
+    if np_seq.shape[0] == 0: return ""
+    if np_seq.max() >= len(alphabet): tqdm.write(f"Invalid value in int sequence ({np_seq.max()})")
     return "".join(alphabet[b] for b in np_seq)
 
 def index_from_kmer(kmer, alphabet="ACGT"):
@@ -77,7 +75,6 @@ def extract_levels(int_seq, int_kmer_levels, kmer_len, center_idx):
 @dataclass
 class kmerModel:
     kmer_model_filename: str = None
-
     _levels_array: np.ndarray = None
     str_kmer_levels: dict = None
     kmer_len: int = None
@@ -85,13 +82,11 @@ class kmerModel:
     is_loaded: bool = False
 
     def __repr__(self):
-        if not self.is_loaded:
-            return "No Remora signal refine/map settings loaded"
-        r_str = (
+        if not self.is_loaded: return "No Remora signal refine/map settings loaded"
+        return (
             f"Loaded {self.kmer_len}-mer table with {self.center_idx + 1} "
             "central position."
         )
-        return r_str
 
     @property
     def bases_before(self):
@@ -115,26 +110,28 @@ class kmerModel:
         with open(self.kmer_model_filename) as kmer_fp:
             self.kmer_len = len(kmer_fp.readline().split()[0])
             kmer_fp.seek(0)
+
             for line in kmer_fp:
                 kmer, level = line.split()
                 kmer = kmer.upper()
+
                 if kmer in self.str_kmer_levels:
-                    tqdm.write(
-                        f"K-mer found twice in levels file '{kmer}'."
-                    )
+                    tqdm.write(f"K-mer found twice in levels file '{kmer}'.")
+
                 if self.kmer_len != len(kmer):
                     tqdm.write(
                         f"K-mer lengths not all equal '{len(kmer)} != "
                         f"{self.kmer_len}' for {kmer}."
                     )
+
                 try:
                     self.str_kmer_levels[kmer] = float(level)
                     if np.isnan(self.str_kmer_levels[kmer]):
                         self.str_kmer_levels[kmer] = 0
+
                 except ValueError:
-                    tqdm.write(
-                        f"Could not convert level to float '{level}'"
-                    )
+                    tqdm.write(f"Could not convert level to float '{level}'")
+
         if len(self.str_kmer_levels) != 4 ** self.kmer_len:
             tqdm.write(
                 "K-mer table contains fewer entries "
@@ -143,15 +140,15 @@ class kmerModel:
             )
 
     def determine_dominant_pos(self):
-        if self.str_kmer_levels is None:
-            return
-        sorted_kmers = sorted(
-            (level, kmer) for kmer, level in self.str_kmer_levels.items()
-        )
+        if self.str_kmer_levels is None: return
+
+        sorted_kmers = sorted((level, kmer) for kmer, level in self.str_kmer_levels.items())
         kmer_idx_stats = []
         kmer_summ = ""
+
         for kmer_idx in range(self.kmer_len):
             kmer_idx_pos = []
+
             for base in "ACGT":
                 kmer_idx_pos.append(
                     [
@@ -160,10 +157,12 @@ class kmerModel:
                         if kmer[kmer_idx] == base
                     ]
                 )
+
             # compute Kruskal-Wallis H-test statistics for non-random ordering
             # of groups, indicating the dominant position within the k-mer
             kmer_idx_stats.append(stats.kruskal(*kmer_idx_pos)[0])
             kmer_summ += f"\t{kmer_idx}\t{kmer_idx_stats[-1]:10.2f}\n"
+
         self.center_idx = np.argmax(kmer_idx_stats)
         tqdm.write(f"K-mer index stats:\n{kmer_summ}")
         tqdm.write(f"Choosen central position: {self.center_idx}")
@@ -171,11 +170,15 @@ class kmerModel:
     @property
     def levels_array(self):
         if self._levels_array is None:
+
             if self.str_kmer_levels is None:
                 return
+
             self._levels_array = np.empty(4 ** self.kmer_len, dtype=np.float32)
+
             for kmer, level in self.str_kmer_levels.items():
                 self._levels_array[index_from_kmer(kmer)] = level
+
         return self._levels_array
 
     def __post_init__(self):
@@ -186,10 +189,12 @@ class kmerModel:
             self.is_loaded = True
             self.kmer_len = int(np.log(self._levels_array.size) / np.log(4))
             assert 4 ** self.kmer_len == self._levels_array.size
+
         elif self.kmer_model_filename is not None:
             self.load_kmer_table()
             self.is_loaded = True
             self.determine_dominant_pos()
+
         elif self.str_kmer_levels is not None:
             self.is_loaded = True
             self.determine_dominant_pos()
@@ -228,10 +233,9 @@ class kmerModel:
         )
 
     def __eq__(self, other):
-        if not isinstance(other, kmerModel):
-            return False
+        if not isinstance(other, kmerModel): return False
+
         if (
-                not np.array_equal(self._levels_array, other._levels_array)
-                or self.center_idx != other.center_idx
-        ):
-            return False
+            not np.array_equal(self._levels_array, other._levels_array)
+            or self.center_idx != other.center_idx
+        ): return False
