@@ -1,8 +1,11 @@
 import torch
 from torch import nn
 
-class EventDetector(nn.Module):
-    name = 'Base'
+class Default(nn.Module):
+    '''
+    Default model of Campolina paper: https://www.biorxiv.org/content/10.1101/2025.07.08.663658v1.
+    '''
+    name = 'Default'
 
     def __init__(
             self, 
@@ -71,6 +74,3 @@ class EventDetector(nn.Module):
         x = torch.swapaxes(x, 1, 2)
         for layer in self.classification_head: x = layer(x)
         return x
-
-#model = EventDetector(in_channels=1, out_channels=[32, 64, 128, 256, 512, 1024, 2048, 1024], kernel_size_one=3, kernel_size_all=9)
-#print(summary(model, (1, 6000)))

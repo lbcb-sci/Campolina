@@ -2,6 +2,9 @@ import torch
 from torch import nn, Tensor
 
 class UNet(nn.Module):
+    '''
+    UNet-like model (currently being tested, see `Default` for the official Campolina model).
+    '''
     name = 'UNet'
 
     def __init__(

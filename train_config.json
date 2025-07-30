@@ -7,7 +7,7 @@
 
     "batch_size": 512,
     "val_batch_size": 512,
-    "gpu": [3],
+    "gpu": [6],
     "epochs": 5,
     "eval_interval": 500,
     "log_interval": 25,
@@ -15,7 +15,7 @@
     "lr": 1e-3,
     "adam_epsilon": 1e-09,
 
-    "in_channels": 5,
+    "in_channels": 4,
     "out_channels": [32, 64, 64, 128, 128],
     "classification_head": [128, 1],
     "kernel_one": 3,

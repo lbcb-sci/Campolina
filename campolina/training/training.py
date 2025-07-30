@@ -3,7 +3,7 @@ import torch
 from torch.utils.tensorboard.writer import SummaryWriter
 
 from campolina.data import BamIndex, load_batches_mp, DONE_SIGNAL
-from campolina.model import EventDetector, UNet
+from campolina.model import Default, UNet
 from campolina.loss import CustomLoss
 
 from .utils import save_model, print_eval, count_params
@@ -18,7 +18,7 @@ def train(scope: dict, run_name: str = 'model') -> None:
     logger = logging.getLogger('train'); logger.setLevel(logging.INFO)
 
     logger.info('initializing model...')
-    model = EventDetector(
+    model = Default(
         in_channels=scope['in_channels'], 
         out_channels=scope['out_channels'], 
         classification_head=scope['classification_head'], 
@@ -82,7 +82,7 @@ def train(scope: dict, run_name: str = 'model') -> None:
     tensorboard.close()
 
 def train_epoch(
-        model: EventDetector, 
+        model: Default, 
         bam_index: BamIndex,
         device: torch.device, 
         optimizer: torch.optim.Optimizer, 
@@ -224,7 +224,7 @@ def train_epoch(
 def train_step(
         batch: torch.Tensor, 
         labels: torch.Tensor, 
-        model: EventDetector, 
+        model: Default, 
         device: torch.device, 
         loss_f: CustomLoss, 
         optimizer: torch.optim.Optimizer, 

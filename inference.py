@@ -18,7 +18,7 @@ from pathlib import Path
 
 from campolina.data.utils import get_raw_batch3
 from campolina.data.output_utils import process_output_format
-from campolina.model import EventDetector, UNet
+from campolina.model import Default, UNet
 from campolina.data.pod5_util import (
     get_pod5_readid_pairs,
     comp_cumsum_gpu,
@@ -73,7 +73,7 @@ def predict(
 
     match model:
         case 'default':
-            model = EventDetector(
+            model = Default(
                 in_channels=4, 
                 out_channels=[32, 64, 64, 128, 128],
                 classification_head=[128, 1], 
@@ -148,7 +148,6 @@ def main(args):
 
     full_end = time.time()
     print(f'Full execution took {full_end - full_start}')
-
 
 def make_argparser():
     parser = argparse.ArgumentParser()

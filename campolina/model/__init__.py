@@ -1,2 +1,2 @@
-from .base import EventDetector
+from .default import Default
 from .unet import UNet
