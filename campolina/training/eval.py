@@ -1,8 +1,7 @@
 import time, logging
 import torch
 from torch import nn
-import numpy as np
-from sklearn.metrics import f1_score, matthews_corrcoef
+from torcheval.metrics import BinaryF1Score
 
 from campolina.data import BamIndex, load_batches_mp, DONE_SIGNAL
 from campolina.loss import CustomLoss
@@ -36,10 +35,14 @@ def eval_model(
         batch_size=scope['val_batch_size'],
     )
 
+    batch_size = None
+
     done_signals = 0
     while done_signals < nprocesses:
 
-        try: batch, labels = batches.get(timeout=5)
+        try: 
+            batch, labels = batches.get(timeout=5)
+            if batch_size is None: batch_size = batch.shape[0]
         except:
             logger.warning(f'timeout (done signals = {done_signals}, nprocesses = {nprocesses})')
             continue
@@ -60,9 +63,10 @@ def eval_model(
         sumhuber += huber.item(); sumconsec += consec.item()
         steps += 1
 
-        probabilities = predictions.sigmoid()
-        full_probabilities.extend(list(probabilities.cpu().numpy()))
-        full_labels.extend(list(labels.cpu().numpy()))
+        if batch.shape[0] != batch_size: continue
+
+        full_probabilities.append(predictions.sigmoid())
+        full_labels.append(labels)
 
     logger.info('joining processes...')
     for process in processes:
@@ -71,17 +75,12 @@ def eval_model(
             logger.error(f'process {process.pid} timeout during join, terminating')
             process.terminate()
 
-    logger.info('computing metrics...')
-    # TODO compute metrics on gpu 
+    logger.info('computing metrics on gpu...')
 
-    probabilities = np.array(full_probabilities)
-    labels = np.array(full_labels)
+    probabilities = torch.stack(full_probabilities).flatten().to(device)
+    labels = torch.stack(full_labels).flatten().to(device)
 
-    y_true = labels.reshape(-1).astype(int)
-    y_pred = (probabilities.reshape(-1) > 0.5).astype(int)
-
-    f1 = f1_score(y_true, y_pred, average='binary')
-    mcc = matthews_corrcoef(y_true, y_pred)
+    f1 = BinaryF1Score(device=device).update(probabilities, labels).compute()
 
     end = time.time()
     runtime = int(end - start)
@@ -95,5 +94,4 @@ def eval_model(
         'probabilities': probabilities,
         'labels': labels,
         'f1': f1,
-        'mcc': mcc,
     }

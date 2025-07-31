@@ -17,20 +17,20 @@ def train(scope: dict, run_name: str = 'model') -> None:
     device = scope['devices'][0]
     logger = logging.getLogger('train'); logger.setLevel(logging.INFO)
 
-    logger.info('initializing model...')
-    model = Default(
-        in_channels=scope['in_channels'], 
-        out_channels=scope['out_channels'], 
-        classification_head=scope['classification_head'], 
-        kernel_size_one=scope['kernel_one'], 
-        kernel_size_all=scope['kernel_all'],
-        dilations=scope['dilations'],
-    ).to(device)
-    print(model)
-
     #logger.info('initializing model...')
-    #model = UNet.make_default().to(device)
+    #model = Default(
+        #in_channels=scope['in_channels'], 
+        #out_channels=scope['out_channels'], 
+        #classification_head=scope['classification_head'], 
+        #kernel_size_one=scope['kernel_one'], 
+        #kernel_size_all=scope['kernel_all'],
+        #dilations=scope['dilations'],
+    #).to(device)
     #print(model)
+
+    logger.info('initializing model...')
+    model = UNet.make_default(dropout=0.0).to(device)
+    print(model)
 
     logger.info(f'model #parameters = {count_params(model)}')
 
@@ -45,7 +45,6 @@ def train(scope: dict, run_name: str = 'model') -> None:
         model.parameters(), 
         lr=scope['lr'], 
         eps=scope['adam_epsilon'],
-        weight_decay=0.01,
     )
 
     bam_index = BamIndex(scope['bam_file'])
@@ -159,64 +158,85 @@ def train_epoch(
             logger.info(f'epoch {epoch}, step {total_steps}, loss = {running_loss:.4f}, queue~{qstate}')
             running_loss = 0.0
 
-        if total_steps % scope['eval_interval'] == 0:
-            val_report = eval_model(
-                bam_index,
-                model=model, 
-                device=device, 
-                loss_f=loss_f,
-                scope=scope, 
-                nprocesses=nprocesses,
-            )
+        #if total_steps % scope['eval_interval'] == 0:
+            #val_report = eval_model(
+                #bam_index,
+                #model=model, 
+                #device=device, 
+                #loss_f=loss_f,
+                #scope=scope, 
+                #nprocesses=nprocesses,
+            #)
 
-            print_eval(epoch, total_steps, val_report)
+            #print_eval(epoch, total_steps, val_report)
 
-            val_loss = val_report['loss']
-            tensorboard.add_scalar('val_loss', val_loss, total_steps)
+            #val_loss = val_report['loss']
+            #tensorboard.add_scalar('val_loss', val_loss, total_steps)
 
-            val_f1 = val_report['f1']
-            tensorboard.add_scalar(tag='F1 (val)', scalar_value=val_f1, global_step=total_steps)
+            #val_f1 = val_report['f1']
+            #tensorboard.add_scalar(tag='F1 (val)', scalar_value=val_f1, global_step=total_steps)
 
-            val_mcc = val_report['mcc']
-            tensorboard.add_scalar(tag='MCC (val)', scalar_value=val_mcc, global_step=total_steps)
+            #tensorboard.add_pr_curve(
+                #'P/R validation',
+                #labels=torch.tensor(val_report['labels']),
+                #predictions=torch.tensor(val_report['probabilities']),
+                #global_step=total_steps,
+            #)
 
-            tensorboard.add_pr_curve(
-                'P/R validation',
-                labels=torch.tensor(val_report['labels']),
-                predictions=torch.tensor(val_report['probabilities']),
-                global_step=total_steps,
-            )
-
-            logger.info('saving model...')
-            save_model(
-                model=model, 
-                epoch=epoch, 
-                step=total_steps, 
-                val_loss=val_loss, 
-                val_f1=val_f1, 
-                val_mcc=val_mcc,
-                name=run_name
-            )
-            logger.info('model saved')
-
-            #if best_val_loss is None:
-                #best_val_loss = val_loss
-                #logger.info('saving first version of the model...')
-                #save_model(model, epoch, total_steps, scope)
-                #logger.info('model saved')
-
-            #elif val_loss < best_val_loss:
-                #logger.info(f'saving new version of model with the lowest validation loss: {val_loss:.4f} < {best_val_loss:.4f}...')
-                #save_model(model, epoch, total_steps, scope)
-                #logger.info('model saved')
-                #best_val_loss = val_loss
-
+            #logger.info('saving model...')
+            #save_model(
+                #model=model, 
+                #epoch=epoch, 
+                #step=total_steps, 
+                #val_loss=val_loss, 
+                #val_f1=val_f1, 
+                #name=run_name
+            #)
+            #logger.info('model saved')
+    
     logger.info('joining processes...')
     for process in processes:
         try: process.join(timeout=10)
         except:
             logger.error(f'process {process.pid} timeout during join, terminating')
             process.terminate()
+
+    # eval at the end of each epoch
+    val_report = eval_model(
+        bam_index,
+        model=model, 
+        device=device, 
+        loss_f=loss_f,
+        scope=scope, 
+        nprocesses=nprocesses,
+    )
+
+    print_eval(epoch, total_steps, val_report)
+
+    val_loss = val_report['loss']
+    tensorboard.add_scalar('val_loss', val_loss, total_steps)
+
+    val_f1 = val_report['f1']
+    tensorboard.add_scalar(tag='F1 (val)', scalar_value=val_f1, global_step=total_steps)
+
+    tensorboard.add_pr_curve(
+        'P/R validation',
+        labels=torch.tensor(val_report['labels']),
+        predictions=torch.tensor(val_report['probabilities']),
+        global_step=total_steps,
+    )
+
+    logger.info('saving model...')
+    save_model(
+        model=model, 
+        epoch=epoch, 
+        step=total_steps, 
+        val_loss=val_loss, 
+        val_f1=val_f1, 
+        name=run_name
+    )
+
+    logger.info('model saved')
 
     logger.info(f'epoch {epoch} completed.')
     return total_steps

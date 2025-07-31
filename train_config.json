@@ -3,14 +3,14 @@
     "validation_pod5": "/mnt/sod2-project/csb4/ARG/mouse_gut/data/MUX12399-T1/20230918_0819_X1_FAW69630_a539d406/pod5_subsets/barcode24/pod5s/EC/EC_valid.pod5",
     "bam_file": "/mnt/sod2-project/csb4/ARG/mouse_gut/data/MUX12399-T1/20230918_0819_X1_FAW69630_a539d406/dorado_basecalls/refined_barcode24_EC_new.bam",
 
-    "nprocesses": 3,
+    "nprocesses": 4,
 
-    "batch_size": 512,
-    "val_batch_size": 512,
+    "batch_size": 1024,
+    "val_batch_size": 1024,
     "gpu": [6],
-    "epochs": 5,
-    "eval_interval": 500,
-    "log_interval": 25,
+    "epochs": 100,
+    "eval_interval": 100,
+    "log_interval": 10,
 
     "lr": 1e-3,
     "adam_epsilon": 1e-09,
@@ -31,7 +31,7 @@
     "logit_eta": 10,
 
     "focal_alpha": 0.8,
-    "focal_gamma": 1,
+    "focal_gamma": 2,
 
     "huber_delta": 20,
     "huber_margin": 10,
