@@ -96,9 +96,7 @@ def train_epoch(
     Train the model for a single epoch.
     """
     model.train()
-
     logger = logging.getLogger('train_epoch')
-
     nprocesses = scope['nprocesses']
 
     batches: torch.multiprocessing.Queue

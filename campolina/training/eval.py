@@ -33,6 +33,7 @@ def eval_model(
         pod5_path=scope['validation_pod5'], 
         #pod5_path=scope['train_pod5'], 
         batch_size=scope['val_batch_size'],
+        nprocesses=nprocesses,
     )
 
     batch_size = None

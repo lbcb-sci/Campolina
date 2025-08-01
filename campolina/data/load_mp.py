@@ -96,15 +96,12 @@ def load_batches_mp(
     for i, _ in enumerate(get_reads(pod5_path)): # TODO rewrite
         buckets[i % nprocesses].add(i)
 
-    processes = [
-        mp.Process(
-            target=dataloader_process, 
-            args=(bucket, pod5_path, bam_index, batch_size, dataset),
-            name=f'DataLoader-{i+1}',
-        ) for i, bucket in enumerate(buckets)
-    ]
+    processes = [mp.Process(
+        target=dataloader_process, 
+        args=(bucket, pod5_path, bam_index, batch_size, dataset),
+        name=f'DataLoader-{i+1}',
+    ) for i, bucket in enumerate(buckets)]
 
     [process.start() for process in processes]
-
     return processes, dataset
 
