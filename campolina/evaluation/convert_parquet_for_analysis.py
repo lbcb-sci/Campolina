@@ -28,8 +28,6 @@ def main(args):
         )
 
         for i, read in enumerate(tqdm(reads)):
-            if i == 100: break
-
             read_id = str(read.read_id)
             signal = read.signal # numpy array
             borders = borders_map[read_id]

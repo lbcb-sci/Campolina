@@ -20,15 +20,14 @@ def get_remora_borders(bam_index, read_id):
     if isinstance(read_id, tuple) and len(read_id) > 0:
         read_id = read_id[0]
 
-    # TODO wtf
-    read_id = read_id.replace('(', '').replace(')', '').replace("'", '').replace(',', '')
+    #read_id = read_id.replace('(', '').replace(')', '').replace("'", '').replace(',', '')
 
     #for a in bam_index.get_alignment(read_id):
-    a = bam_index.get_alignment(read_id)
+    alignment = bam_index.get_alignment(read_id)
 
-    if a is None: return None
+    if alignment is None: return None
 
-    remora_borders = np.array(a.get_tag('RR')) + a.get_tag('ts')
+    remora_borders = np.array(alignment.get_tag('RR')) + alignment.get_tag('ts')
 
     return remora_borders
 
@@ -168,14 +167,11 @@ def correlation_evaluation(align_df, restrict_to_matches=False, colid='ref_kmer_
         align_df = align_df.filter(pl.col('event_align_status') == 0)
     return pearsonr(align_df['event_mean'], align_df[colid])
 
-
 def alignment_score_evaluation(match_num, insert_num, delete_num, ref_len, match_score=1, insertion_score=0.5, deletion_score=0.5):
     return (match_score*match_num - insertion_score*insert_num - deletion_score*delete_num)/ref_len
 
-
 def len_alignment_score_evaluation(match_len, insert_len, delete_len):
     return match_len - (insert_len + delete_len)
-
 
 def aligned_event_evaluation(align_csv):
     match_nums = []
@@ -238,8 +234,6 @@ def main(args):
     aligned_event_evaluation(alndf)
 
 DEFAULT_BAM  = '/mnt/sod2-project/csb4/wgs/metagenomics_data/projects/segmentation/segmentation_data/R10_Zymo_subsample/barcode24_zymo_wo_EC_1k_per_species_min_len_1k/refined_R10_zymo_wo_EC_segmenteval_subset.bam'
-DEFAULT_POD5 = '/mnt/sod2-project/csb4/wgs/metagenomics_data/projects/segmentation/segmentation_data/R10_Zymo_subsample/barcode24_zymo_wo_EC_1k_per_species_min_len_1k/barcode24_zymo_subsampled_wo_EC_min_len_1k.pod5'
-DEFAULT_KMER = 'campolina/groundtruth/9mers_levels_R10_4_1_400bps.txt'
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
