@@ -214,9 +214,9 @@ def aligned_event_evaluation(align_csv):
     remora_match_correlation_eval = correlation_evaluation(align_df, restrict_to_matches=True, colid='remora_event_mean')
     full_correlation_eval = correlation_evaluation(align_df, restrict_to_matches=False, colid='ref_kmer_level')
     match_correlation_eval = correlation_evaluation(align_df, restrict_to_matches=True, colid='ref_kmer_level')
-    #print(f'Average alignment score: {np.mean(alignment_scores)}')
-    print(f'Average length-weighted alignment score: {np.mean(alignment_len_scores):.2f}')
-    print(f'L2 distance for full alignment is {full_std_eval:.2f}, for match only {match_std_eval:.2f}')
+    print(f'Average alignment score: {np.mean(alignment_scores)}')
+    #print(f'Average length-weighted alignment score: {np.mean(alignment_len_scores)}')
+    print(f'L2 distance for full alignment is {full_std_eval}, for match only {match_std_eval}')
     #print(f'Pearson r for full alignment to remora is {remora_full_correlation_eval}, for match only {remora_match_correlation_eval}')
     print(f'Pearson r for full alignment is {full_correlation_eval}, for match only {match_correlation_eval}')
 
