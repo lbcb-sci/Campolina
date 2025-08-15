@@ -1,189 +1,145 @@
 import torch
 from torch import nn, Tensor
+from torch.utils import checkpoint
 
-class UNet(nn.Module):
+DEFAULT_KERNEL_SIZE = 3
+DEFAULT_INPUT_CHANNELS = 4
+
+class unet(nn.Module):
     '''
-    UNet-like model (currently being tested, see `Default` for the official Campolina model).
+    (Currently being tested, see `Default` for the official Campolina model.)
     '''
-    name = 'UNet'
+    name = 'unet'
 
     def __init__(
             self,
-            chan_down: list[int],
-            chan_up: list[int],
-            kernel: int = 3,
+            channels: list[int],
+            n_channels_input: int = DEFAULT_INPUT_CHANNELS,
+            kernel: int = DEFAULT_KERNEL_SIZE,
             dropout: float = 0.0,
+            checkpoint: bool = True,
         ):
-        assert len(chan_down) == len(chan_up)
         super().__init__()
+        rev_channels = list(reversed(channels))
 
-        self.first = ConvBlock(
-            in_ch=4,
-            out_ch=chan_down[0],
-            kernel=kernel,
-            dropout=0.0,
-        )
+        # dummy layer to map to same number of channels as final layer and normalize for downsampling
+        self.first = nn.Sequential(
+            nn.Conv1d(n_channels_input, channels[0], 1, 1, bias=False),
+            nn.BatchNorm1d(num_features=channels[0]),
+        ) 
 
         self.downlayers = nn.ModuleList([
             Down(
-                in_ch=chan_down[i], 
-                out_ch=chan_down[i+1],
+                in_ch=in_ch, 
+                out_ch=out_ch,
                 kernel=kernel,
                 dropout=dropout,
-            ) for i, _ in enumerate(chan_down[:-1])
+            ) for (in_ch, out_ch) in zip(channels[:-1], channels[1:])
         ])
+
+        self.middle = ConvBlock(channels[-1], channels[-1], 3, 0)
 
         self.uplayers = nn.ModuleList([
             Up(
-                in_ch=chan_up[i]+chan_down[-i-1], # residual
-                out_ch=chan_up[i+1],
+                in_ch=in_ch*2, # + residual
+                out_ch=out_ch,
                 kernel=kernel,
                 dropout=dropout,
-            ) for i, _ in enumerate(chan_up[:-1])
+                checkpoint=checkpoint,
+            ) for (in_ch, out_ch) in zip(rev_channels[:-1], rev_channels[1:])
         ])
 
-        self.last = nn.Conv1d(
-            in_channels=chan_down[0]+chan_up[-1], # first + output of upsample
-            out_channels=1,
-            kernel_size=3,
-            padding=1,
-        )
+        self.last = nn.Linear(channels[0]*2, 1)
 
-    @staticmethod
-    def make_default(dropout: float = 0.0):
-        chan = [4, 64, 128, 256, 512]
-        return UNet(chan_down=chan, chan_up=list(reversed(chan)), dropout=dropout)
+    @classmethod
+    def make_default(cls, dropout: float = 0.0):
+        chan = [16, 32, 64, 128, 256]
+        return cls(channels=chan, dropout=dropout)
         
-    def forward(self, x: Tensor) -> Tensor:
-        x = self.first(x)
-        first = x.clone()
+    def forward(self, tensor: Tensor) -> Tensor:
+        tensor = self.first(tensor)
+        first = tensor.clone()
 
         residuals = []
 
-        # down sample
+        # downsample
         for down in self.downlayers:
-            x = down(x)
-            residuals.append(x.clone())
+            tensor = down(tensor)
+            residuals.append(tensor.clone())
 
-        # up sample
+        # bottleneck
+        tensor = self.middle(tensor)
+
+        # upsample
         for i, up in enumerate(self.uplayers):
-            residual = residuals[-i-1]
-            x = up(torch.concat([x, residual], dim=1))
-        
+            residual = residuals[-(i+1)]
+            tensor = torch.concat([tensor, residual], dim=1)
+            tensor = up(tensor)
+
         # get logits
-        return self.last(torch.concat([x, first], dim=1))
+        tensor = torch.concat([tensor, first], dim=1)
+        return self.last(tensor.transpose(-2, -1)).squeeze(-1)
 
 class Down(nn.Module):
-    '''Halves the input by applying pooling + convolution.'''
-    def __init__(
-            self, 
-            in_ch: int, 
-            out_ch: int,
-            kernel: int,
-            pooling: int = 2,
-            dropout: float = 0.0,
-        ):
-
+    '''Halves the input by applying pooling + 2*conv.'''
+    def __init__(self, in_ch: int, out_ch: int, kernel: int, dropout: float):
         super().__init__()
 
-        self.maxpool = nn.MaxPool1d(pooling)
-
-        self.conv = nn.Sequential(
-            ConvBlock(
-                in_ch=in_ch, 
-                out_ch=out_ch, 
-                kernel=kernel, 
-                dropout=dropout,
-            ),
-            #Convolution(
-                #in_ch=out_ch, 
-                #out_ch=out_ch, 
-                #kernel=kernel, 
-                #dropout=dropout,
-            #),
+        self.layers = nn.Sequential(
+            DoubleConvBlock(in_ch, out_ch, kernel, dropout),
+            nn.MaxPool1d(2, 2),
         )
 
-    def forward(self, x: Tensor) -> Tensor: return self.conv(self.maxpool(x))
+    def forward(self, tensor: Tensor) -> Tensor:
+        return self.layers(tensor)
 
 class Up(nn.Module):
-    '''Upsample the input using transposed_conv + conv.'''
-    def __init__(
-            self, 
-            in_ch: int, 
-            out_ch: int,
-            kernel: int,
-            dropout: float = 0.0,
-        ):
-
+    '''Upsample the input using nearest upsampling + 2*conv.'''
+    def __init__(self, in_ch: int, out_ch: int, kernel: int, dropout: float, checkpoint: bool):
         super().__init__()
-
         assert kernel % 2 == 1
+        self.ckpt = checkpoint
 
-        # TODO try other upsampling strategies
-        self.convT = nn.ConvTranspose1d(
-            in_channels=in_ch,
-            out_channels=out_ch,
-            kernel_size=2,
-            stride=2,
+        self.layers = nn.Sequential(
+            nn.Upsample(scale_factor=2, mode='nearest'),
+            DoubleConvBlock(in_ch, out_ch, kernel, dropout)
         )
 
-        self.conv = nn.Sequential(
-            ConvBlock(
-                in_ch=out_ch, 
-                out_ch=out_ch, 
-                kernel=kernel, 
-                dropout=dropout,
-            ),
-            #Convolution(
-                #in_ch=out_ch, 
-                #out_ch=out_ch, 
-                #kernel=kernel, 
-                #dropout=dropout,
-            #),
+    def forward(self, tensor: Tensor) -> Tensor:
+        if not self.ckpt: return self.layers(tensor)
+        return checkpoint.checkpoint(lambda _: self.layers(_), tensor, use_reentrant=False)
+
+class DoubleConvBlock(nn.Module):
+    def __init__(self, in_ch: int, out_ch: int, kernel: int, dropout: float):
+        super().__init__()
+        mid_ch = max(in_ch, out_ch)
+
+        self.layers = nn.Sequential(
+            ConvBlock(in_ch, mid_ch, kernel, dropout),
+            ConvBlock(mid_ch, out_ch, kernel, dropout),
         )
 
-    def forward(self, x: Tensor) -> Tensor: return self.conv(self.convT(x))
+    def forward(self, tensor: Tensor) -> Tensor:
+        return self.layers(tensor)
 
 class ConvBlock(nn.Module):
     '''Conv + Norm + ReLU + Dropout'''
-    def __init__(
-            self, 
-            in_ch: int, 
-            out_ch: int,
-            kernel: int,
-            dropout: float = 0.0,
-        ):
+    def __init__(self, in_ch: int, out_ch: int, kernel: int, dropout: float):
         assert kernel % 2 == 1
         super().__init__()
 
-        self.running_mean = []
-        self.running_var = []
-
+        padding = (kernel - 1) // 2
         self.block = nn.Sequential(
             nn.Conv1d(
                 in_channels=in_ch, 
                 out_channels=out_ch,
                 kernel_size=kernel,
-                padding=(kernel - 1) // 2,
+                padding=padding,
             ),
-            #nn.GroupNorm(
-                #num_groups=min(out_ch, 32),
-                #num_channels=out_ch,
-            #),
             nn.BatchNorm1d(num_features=out_ch),
             nn.ReLU(),
             nn.Dropout(dropout),
         )
 
-    def forward(self, x: Tensor) -> Tensor: 
-        out = self.block(x)
-
-        #norm: nn.BatchNorm1d
-        #norm = self.block.get_submodule('1')
-
-        #self.running_mean.append(norm.running_mean.detach().mean().cpu().item())
-        #self.running_var.append(norm.running_var.detach().mean().cpu().item())
-
-        return out
-
-    
+    def forward(self, tensor: Tensor) -> Tensor: 
+        return self.block(tensor)

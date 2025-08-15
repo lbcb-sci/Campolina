@@ -256,11 +256,9 @@ def process_chunk(aln, read, adjust_type=None, predict=False, chunk_len=6000, w_
         identifiers = None
 
     signal_chunks = np.array(signal_chunks)
-    cumsum_sig, cumsum_sig_square = comp_cumsum(signal_chunks)
-    tstat1 = comp_tstat(cumsum_sig, cumsum_sig_square, chunk_len, w_len)
     diff = diff1(signal_chunks)
     w_means, w_stds = window_mean_std(signal_chunks, wlen=3)
-    signal_chunks = list(np.stack((signal_chunks, diff, w_means, w_stds, tstat1), axis=1))
+    signal_chunks = list(np.stack((signal_chunks, diff, w_means, w_stds), axis=1))
 
     return signal_chunks, chunk_borders, identifiers
 

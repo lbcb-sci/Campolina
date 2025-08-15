@@ -1,9 +1,10 @@
 import time, logging
 import torch
 from torch.utils.tensorboard.writer import SummaryWriter
+from torchscan import summary
 
 from campolina.data import BamIndex, load_batches_mp, DONE_SIGNAL
-from campolina.model import Default, UNet
+from campolina.model import Default, unet
 from campolina.loss import CustomLoss
 
 from .utils import save_model, print_eval, count_params
@@ -17,25 +18,15 @@ def train(scope: dict, run_name: str = 'model') -> None:
     device = scope['devices'][0]
     logger = logging.getLogger('train'); logger.setLevel(logging.INFO)
 
-    #logger.info('initializing model...')
-    #model = Default(
-        #in_channels=scope['in_channels'], 
-        #out_channels=scope['out_channels'], 
-        #classification_head=scope['classification_head'], 
-        #kernel_size_one=scope['kernel_one'], 
-        #kernel_size_all=scope['kernel_all'],
-        #dilations=scope['dilations'],
-    #).to(device)
-    #print(model)
-
     logger.info('initializing model...')
-    model = UNet.make_default(dropout=0.0).to(device)
-    print(model)
+    model = unet.make_default().to(device)
+    #print(model)
+    summary(model, (4, 6000))
 
-    logger.info(f'model #parameters = {count_params(model)}')
+    logger.info(f'model #parameters = {count_params(model):,d}')
 
-    logger.info('torch.compile(model)...')
-    model = torch.compile(model, fullgraph=True, backend='inductor')
+    #logger.info('torch.compile(model)...')
+    #model = torch.compile(model, fullgraph=True, backend='inductor')
 
     logger.info('initializing loss function...')
     loss_f = CustomLoss.from_dict(scope)
@@ -155,42 +146,6 @@ def train_epoch(
             qstate = "full" if batches.full() else batches.qsize()
             logger.info(f'epoch {epoch}, step {total_steps}, loss = {running_loss:.4f}, queue~{qstate}')
             running_loss = 0.0
-
-        #if total_steps % scope['eval_interval'] == 0:
-            #val_report = eval_model(
-                #bam_index,
-                #model=model, 
-                #device=device, 
-                #loss_f=loss_f,
-                #scope=scope, 
-                #nprocesses=nprocesses,
-            #)
-
-            #print_eval(epoch, total_steps, val_report)
-
-            #val_loss = val_report['loss']
-            #tensorboard.add_scalar('val_loss', val_loss, total_steps)
-
-            #val_f1 = val_report['f1']
-            #tensorboard.add_scalar(tag='F1 (val)', scalar_value=val_f1, global_step=total_steps)
-
-            #tensorboard.add_pr_curve(
-                #'P/R validation',
-                #labels=torch.tensor(val_report['labels']),
-                #predictions=torch.tensor(val_report['probabilities']),
-                #global_step=total_steps,
-            #)
-
-            #logger.info('saving model...')
-            #save_model(
-                #model=model, 
-                #epoch=epoch, 
-                #step=total_steps, 
-                #val_loss=val_loss, 
-                #val_f1=val_f1, 
-                #name=run_name
-            #)
-            #logger.info('model saved')
     
     logger.info('joining processes...')
     for process in processes:
@@ -253,8 +208,7 @@ def train_step(
     model.train()
 
     batch, labels = batch.to(device), labels.to(device)
-    batch = batch[:, :4, :] # remove t-statistic channel
-    predictions = torch.squeeze(model(batch), dim=1 if model.name == UNet.name else 2)
+    predictions = torch.squeeze(model(batch), dim=1 if model.name == unet.name else 2)
 
     loss, focal, huber, consec = loss_f(batch, predictions, labels)
 

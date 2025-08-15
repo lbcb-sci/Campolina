@@ -18,11 +18,10 @@ from pathlib import Path
 
 from campolina.data.utils import get_raw_batch3
 from campolina.data.output_utils import process_output_format
-from campolina.model import Default, UNet
+from campolina.model import Default, unet
 from campolina.data.pod5_util import (
     get_pod5_readid_pairs,
     comp_cumsum_gpu,
-    comp_tstat_gpu,
     diff1_gpu,
     window_mean_std_gpu,
 )
@@ -82,7 +81,7 @@ def predict(
             ).to(device)
 
         case 'unet':
-            model = UNet.make_default().to(device)
+            model = unet.make_default().to(device)
         
         case _:
             print('model must be in [default, unet]')
@@ -110,12 +109,10 @@ def predict(
         for chunks, chunk_borders, read_ids, signal_chunks in tqdm.tqdm(get_raw_batch3(reader, rids, batch_size)):
 
             torch_chunks = torch.Tensor(np.array(chunks)).to(device)
-            cumsum_sig_gpu, cumsum_sig_square_gpu = comp_cumsum_gpu(torch_chunks)
-            tstat1_gpu = comp_tstat_gpu(cumsum_sig_gpu, cumsum_sig_square_gpu, 6000, 3)
             diff_gpu = diff1_gpu(torch_chunks)
             gpu_w_means, gpu_w_stds = window_mean_std_gpu(torch_chunks, wlen=3)
 
-            signal = torch.stack([torch_chunks, diff_gpu, gpu_w_means, gpu_w_stds, tstat1_gpu], dim=1)
+            signal = torch.stack([torch_chunks, diff_gpu, gpu_w_means, gpu_w_stds], dim=1)
             logits = predict_detect(model, signal, device)
 
             queue.put((logits, chunk_borders, read_ids, signal_chunks))

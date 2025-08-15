@@ -5,7 +5,7 @@ from torcheval.metrics import BinaryF1Score
 
 from campolina.data import BamIndex, load_batches_mp, DONE_SIGNAL
 from campolina.loss import CustomLoss
-from campolina.model import UNet
+from campolina.model import unet
 
 @torch.no_grad()
 def eval_model(
@@ -31,7 +31,6 @@ def eval_model(
     processes, batches = load_batches_mp( 
         bam_index,
         pod5_path=scope['validation_pod5'], 
-        #pod5_path=scope['train_pod5'], 
         batch_size=scope['val_batch_size'],
         nprocesses=nprocesses,
     )
@@ -54,9 +53,8 @@ def eval_model(
             continue
 
         batch, labels = batch.to(device), labels.to(device)
-        batch = batch[:, :4, :] # remove t-statistic channel
 
-        predictions = torch.squeeze(model(batch), dim=(1 if model.name == UNet.name else 2))
+        predictions = torch.squeeze(model(batch), dim=(1 if model.name == unet.name else 2))
 
         loss, focal, huber, consec = loss_f(batch, predictions, labels)
 
