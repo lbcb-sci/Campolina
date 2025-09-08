@@ -4,29 +4,28 @@ from torch.utils.tensorboard.writer import SummaryWriter
 from torchscan import summary
 
 from campolina.data import BamIndex, load_batches_mp, DONE_SIGNAL
-from campolina.model import Default, unet
+from campolina.model import UNet
 from campolina.loss import CustomLoss
 
 from .utils import save_model, print_eval, count_params
 from .eval import eval_model
 
-def train(scope: dict, run_name: str = 'model') -> None:
+def train(scope: dict, run_name: str = 'campolina') -> None:
     '''
-    Main function for training. Initializes model, loss and optim, and calls `train_epoch`.
+    Main function for training. Initializes model, loss and optimizer and calls `train_epoch`.
     '''
     torch.multiprocessing.set_start_method('spawn')
     device = scope['devices'][0]
     logger = logging.getLogger('train'); logger.setLevel(logging.INFO)
 
     logger.info('initializing model...')
-    model = unet.make_default().to(device)
+    #model = UNet.make_default(checkpoint=False).to(device)
+    model = UNet([16, 32]).to(device)
     #print(model)
-    summary(model, (4, 6000))
-
     logger.info(f'model #parameters = {count_params(model):,d}')
 
-    #logger.info('torch.compile(model)...')
-    #model = torch.compile(model, fullgraph=True, backend='inductor')
+    logger.info('torch.compile(model)...')
+    model.compile(fullgraph=True, backend='inductor')
 
     logger.info('initializing loss function...')
     loss_f = CustomLoss.from_dict(scope)
@@ -39,11 +38,13 @@ def train(scope: dict, run_name: str = 'model') -> None:
     )
 
     bam_index = BamIndex(scope['bam_file'])
+
     tensorboard = SummaryWriter(f'runs/{run_name}')
-    epochs = scope['epochs']
-    total_steps = 0
+
     start_total = time.time()
 
+    epochs = scope['epochs']
+    total_steps = 0
     for epoch in range(1, epochs+1):
         logger.info(f'|| STARTING EPOCH {epoch} ||')
 
@@ -72,7 +73,7 @@ def train(scope: dict, run_name: str = 'model') -> None:
     tensorboard.close()
 
 def train_epoch(
-        model: Default, 
+        model: torch.nn.Module, 
         bam_index: BamIndex,
         device: torch.device, 
         optimizer: torch.optim.Optimizer, 
@@ -97,6 +98,7 @@ def train_epoch(
         scope['train_pod5'],
         batch_size=scope['batch_size'],
         nprocesses=nprocesses,
+        length=scope['train_len'],
     )
 
     time.sleep(2)
@@ -141,7 +143,7 @@ def train_epoch(
 
         running_loss += train_loss
 
-        if total_steps % log_interval == 0:
+        if (total_steps % log_interval) == 0:
             running_loss /= log_interval
             qstate = "full" if batches.full() else batches.qsize()
             logger.info(f'epoch {epoch}, step {total_steps}, loss = {running_loss:.4f}, queue~{qstate}')
@@ -161,22 +163,21 @@ def train_epoch(
         device=device, 
         loss_f=loss_f,
         scope=scope, 
-        nprocesses=nprocesses,
     )
 
     print_eval(epoch, total_steps, val_report)
 
     val_loss = val_report['loss']
-    tensorboard.add_scalar('val_loss', val_loss, total_steps)
+    tensorboard.add_scalar('val_loss', val_loss, epoch)
 
     val_f1 = val_report['f1']
-    tensorboard.add_scalar(tag='F1 (val)', scalar_value=val_f1, global_step=total_steps)
+    tensorboard.add_scalar(tag='F1 (val)', scalar_value=val_f1, global_step=epoch)
 
     tensorboard.add_pr_curve(
         'P/R validation',
         labels=torch.tensor(val_report['labels']),
         predictions=torch.tensor(val_report['probabilities']),
-        global_step=total_steps,
+        global_step=epoch,
     )
 
     logger.info('saving model...')
@@ -197,25 +198,26 @@ def train_epoch(
 def train_step(
         batch: torch.Tensor, 
         labels: torch.Tensor, 
-        model: Default, 
+        model: UNet, 
         device: torch.device, 
         loss_f: CustomLoss, 
         optimizer: torch.optim.Optimizer, 
     ) -> dict:
     """
-    Train model on a single batch, that is forward + backward pass, and returns loss details.
+    Train model on a single batch (forward + backward) and returns losses.
     """
     model.train()
 
+    # move to device
     batch, labels = batch.to(device), labels.to(device)
-    predictions = torch.squeeze(model(batch), dim=1 if model.name == unet.name else 2)
 
-    loss, focal, huber, consec = loss_f(batch, predictions, labels)
+    # forward pass
+    predictions = model(batch)
 
-    if torch.isnan(loss):
-        logger = logging.getLogger('train_step')
-        logger.error('loss function returned NaN')
+    # loss 
+    loss, focal, huber, consec = loss_f(predictions, labels)
 
+    # backward
     optimizer.zero_grad()
     loss.backward()
     optimizer.step()

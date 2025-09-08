@@ -1,6 +1,6 @@
 #/bin/bash
 
-rm -f bam_cache.pkl
+#rm -f bam_cache.pkl
 rm -rf models
 rm -rf weights
 rm -rf runs

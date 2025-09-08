@@ -1,5 +1,5 @@
 import torch
-from torch import nn, Tensor
+from torch import Tensor
 from torch.nn import BCEWithLogitsLoss, HuberLoss
 from torch.nn.modules.loss import _Loss
 
@@ -28,9 +28,9 @@ class CustomLoss(_Loss):
         self.focal_loss = FocalLoss(alpha=focal_alpha, gamma=focal_gamma)
         self.huber_loss = HuberLoss(delta=huber_delta)
 
-    @staticmethod
-    def from_dict(scope: dict):
-        return CustomLoss(
+    @classmethod
+    def from_dict(cls, scope: dict):
+        return cls(
             alpha=scope['bce_alpha'], 
             beta=scope['huber_beta'], 
             gamma=scope['consecutive_gamma'], 
@@ -42,7 +42,7 @@ class CustomLoss(_Loss):
             margin=scope['huber_margin'],
         )
 
-    def forward(self, signals: Tensor, predictions: Tensor, target: Tensor) -> Tensor:
+    def forward(self, predictions: Tensor, target: Tensor) -> Tensor:
         probabilities = torch.sigmoid(self.eta * predictions)
 
         num_predicted_events = torch.sum(probabilities, dim=1).float() - self.margin

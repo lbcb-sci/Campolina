@@ -5,6 +5,7 @@ torch_compile_debug/**
 models/**
 weights/**
 *.pkl
+.ipynb_checkpoints
 .tensorboard-info/**
 tmp*
 torchinductor*

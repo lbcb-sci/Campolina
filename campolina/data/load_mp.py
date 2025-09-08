@@ -21,6 +21,7 @@ def dataloader_process(
         bam_idx: BamIndex,
         batch_size: int, 
         dataset: mp.Queue,
+        length: int = 6000,
     ) -> None: 
 
     logging.basicConfig(level=logging.INFO, format='[%(processName)s] %(message)s')
@@ -40,6 +41,7 @@ def dataloader_process(
             aln=alignment, 
             read=read, 
             adjust_type=None,
+            chunk_len=length,
         )
 
         if signal_chunks is None:
@@ -84,6 +86,7 @@ def load_batches_mp(
         nprocesses: int = 3,
         queue_maxsize: int = 8,
         batch_size: int = 1024,
+        length: int = 6000,
     ) -> tuple[list[mp.Process], mp.Queue]:
     '''
     Load data in parallel using multiprocessing.
@@ -98,7 +101,7 @@ def load_batches_mp(
 
     processes = [mp.Process(
         target=dataloader_process, 
-        args=(bucket, pod5_path, bam_index, batch_size, dataset),
+        args=(bucket, pod5_path, bam_index, batch_size, dataset, length),
         name=f'DataLoader-{i+1}',
     ) for i, bucket in enumerate(buckets)]
 

@@ -1,19 +1,21 @@
+# This script simply parses the provided train_config file and calls `campolina.train()`.
+
 import argparse
-import json
-import os
 import warnings
 import logging
-import torch
+import json
+import os
 
+import torch
 import campolina 
 
 if __name__ == '__main__':
     warnings.filterwarnings('ignore')
-    torch.manual_seed(12345)
+    torch.manual_seed(42)
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--config_file', default='train_config.json')
-    parser.add_argument('--run_name', default='unet')
+    parser.add_argument('--run_name', default='campolina')
 
     args = parser.parse_args()
     with open(args.config_file, 'r') as inf: scope = json.load(inf)

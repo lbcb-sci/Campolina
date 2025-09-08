@@ -5,7 +5,7 @@ from torch import nn
 def count_params(model) -> int:
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-def mkname(epoch: int, step: int, val_loss: float, val_f1: float):
+def mkname(epoch: int, step: int, val_loss: float, val_f1: float) -> str:
     return f'epoch_{epoch}_step_{step}_loss_{val_loss:.3f}_f1_{val_f1:.3f}.pth'
 
 def save_model(model: nn.Module, epoch: int, step: int, val_loss: float, val_f1: float, name: str = None):

@@ -4,6 +4,8 @@ from collections import defaultdict
 from typing import Optional
 from pysam import AlignedSegment, AlignmentFile
 
+FILENAME = 'cache.pkl'
+
 class BamIndex:
     '''A mapping (read id -> pointer to aligned segment).'''
 
@@ -31,7 +33,7 @@ class BamIndex:
     def build_index(self) -> None:
         if self.use_cached:
             try: # load from disk if possible 
-                with open(f'./bam_cache.pkl', 'rb') as f: 
+                with open(FILENAME, 'rb') as f: 
                     self.logger.info('loading cached BAM file...')
                     self.bam_idx = pickle.load(f)
                     self.logger.info('loading cached BAM file done.')
@@ -63,7 +65,7 @@ class BamIndex:
         self.logger.info(f'number of reads: {self.num_reads}')
 
         if self.use_cached:
-            with open(f'./bam_cache.pkl', 'xb') as f: # write to disk
+            with open(FILENAME, 'xb') as f: # write to disk
                 pickle.dump(self.bam_idx, f)
                 self.logger.info(f'cached BAM index: bam_cache.pkl')
 

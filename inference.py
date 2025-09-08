@@ -1,5 +1,8 @@
+'''Script for computing inference for a given pod5 file input.'''
+
 import os
 os.environ['POLARS_MAX_THREADS'] = '32'
+
 import polars as pl
 pl.enable_string_cache()
 pl.Config.set_fmt_str_lengths(38)
@@ -7,33 +10,32 @@ pl.Config.set_fmt_str_lengths(38)
 import argparse
 import time
 import tqdm
-import torch
 import multiprocessing as mp
 import numpy as np
 import pandas as pd
-import pyarrow.parquet as pq
 import pyarrow as pa
+import pyarrow.parquet as pq
 import pod5
 from pathlib import Path
 
+import torch
+from torch import Tensor
+
 from campolina.data.utils import get_raw_batch3
 from campolina.data.output_utils import process_output_format
-from campolina.model import Default, unet
+from campolina.model import Default, UNet
+from campolina.training.utils import count_params
 from campolina.data.pod5_util import (
     get_pod5_readid_pairs,
-    comp_cumsum_gpu,
     diff1_gpu,
     window_mean_std_gpu,
 )
-
-DEFAULT_POD5_DIR = '/mnt/sod2-project/csb4/wgs/metagenomics_data/projects/segmentation/segmentation_data/R10_Zymo_subsample/barcode24_zymo_wo_EC_1k_per_species_min_len_1k/'
 
 def writer_worker(queue, output_path, schema, mode):
     writer = pq.ParquetWriter(output_path, schema)
 
     while True:
         item = queue.get()
-
         if item is None: break
 
         logits, chunk_borders, read_ids, signal_chunks = item
@@ -45,50 +47,43 @@ def writer_worker(queue, output_path, schema, mode):
 
     writer.close()
 
-def predict_detect(model: torch.nn.Module, batch, device):
-    torch.cuda.synchronize()
-    batch = batch[:, :4, :].to(device)
-    logits = model(batch).squeeze().detach().cpu()
-    torch.cuda.synchronize()
-    return logits
+def predict_detect(model: torch.nn.Module, batch: Tensor, device: torch.device):
+    return model(batch.to(device)).squeeze().detach().cpu()
 
-def predict(
-        model_path: str, 
-        model: str,
-        devices: list, 
-        pod5_rids_pairs, 
-        batch_size: int, 
-        target_file: str, 
-        mode: str,
-    ):
-
-    device = devices[0]
-
-    # TODO why do we have to do that ?
-    state_dict = {
-        k.replace('_orig_mod.', ''): v 
+def load_state_dict(model_path: str, device: torch.device):
+    return {
+        k.replace('_orig_mod.', ''): v # bc of torch.compile 
         for k, v in torch.load(model_path, map_location=device, weights_only=True).items()
     }
 
-    match model:
-        case 'default':
-            model = Default(
-                in_channels=4, 
-                out_channels=[32, 64, 64, 128, 128],
-                classification_head=[128, 1], 
-                kernel_size_one=3, 
-                kernel_size_all=31
-            ).to(device)
+def build_features(chunks: list, device: torch.device)-> Tensor:
+    torch_chunks = torch.Tensor(np.array(chunks)).to(device)
+    diff_gpu = diff1_gpu(torch_chunks)
+    gpu_w_means, gpu_w_stds = window_mean_std_gpu(torch_chunks, wlen=3)
+    signal = torch.stack([torch_chunks, diff_gpu, gpu_w_means, gpu_w_stds], dim=1)
+    return signal
 
-        case 'unet':
-            model = unet.make_default().to(device)
-        
-        case _:
-            print('model must be in [default, unet]')
-            exit(0)
+def predict(
+        model_path: str, 
+        model: str, 
+        device: torch.device, 
+        pod5_rids_pairs, 
+        batch_size: int, 
+        target_file: str, 
+        mode: str
+    ):
+
+    state_dict = load_state_dict(model_path, device)
+
+    match model:
+        case 'default': model = Default.make_default().to(device)
+        case 'unet': model = UNet.make_default().to(device)
+        case _: print('model must be in [default, unet]'); exit(0)
 
     print(model.load_state_dict(state_dict, strict=True))
-    model = model.eval()
+    print(f'model #parameters = {count_params(model)}')
+
+    model.eval()
 
     # Generate schema
     schema = pa.schema([
@@ -96,7 +91,7 @@ def predict(
         ('event_start', pa.int32())
     ])
 
-    output_path = f"{target_file}.parquet"
+    output_path = f'{target_file}.parquet'
 
     # Init worker processes
     queue = mp.Queue()
@@ -107,14 +102,9 @@ def predict(
         reader = pod5.Reader(pod5_path)
 
         for chunks, chunk_borders, read_ids, signal_chunks in tqdm.tqdm(get_raw_batch3(reader, rids, batch_size)):
-
-            torch_chunks = torch.Tensor(np.array(chunks)).to(device)
-            diff_gpu = diff1_gpu(torch_chunks)
-            gpu_w_means, gpu_w_stds = window_mean_std_gpu(torch_chunks, wlen=3)
-
-            signal = torch.stack([torch_chunks, diff_gpu, gpu_w_means, gpu_w_stds], dim=1)
+            # compute predictions
+            signal = build_features(chunks, device)
             logits = predict_detect(model, signal, device)
-
             queue.put((logits, chunk_borders, read_ids, signal_chunks))
 
     # Close workers
@@ -131,12 +121,14 @@ def main(args):
         os.environ["CUDA_VISIBLE_DEVICES"] = ""
         devices = [torch.device("cpu")]
 
+    device = devices[0]
+
     pod5_readid_pairs = get_pod5_readid_pairs(args.pod5_dir)
 
     predict(
         model_path=args.model_path, 
         model=args.model,
-        devices=devices, 
+        device=device, 
         pod5_rids_pairs=pod5_readid_pairs, 
         batch_size=args.batch_size, 
         target_file=f'{args.target_dir}/{args.output}', 
@@ -145,6 +137,8 @@ def main(args):
 
     full_end = time.time()
     print(f'Full execution took {full_end - full_start}')
+
+DEFAULT_POD5_DIR = '/mnt/sod2-project/csb4/wgs/metagenomics_data/projects/segmentation/segmentation_data/R10_Zymo_subsample/barcode24_zymo_wo_EC_1k_per_species_min_len_1k/'
 
 def make_argparser():
     parser = argparse.ArgumentParser()
@@ -160,5 +154,4 @@ def make_argparser():
 
 if __name__ == '__main__':
     mp.set_start_method('spawn', force=True)
-
     main(make_argparser().parse_args())
